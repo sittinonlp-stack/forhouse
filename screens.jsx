@@ -843,9 +843,15 @@ function TeamTab({ project, onUpdate, currentRole }) {
     if (!isLive) return Promise.resolve();
     return window.db.members.getProjectMembers(project.id)
       .then(fresh => {
+        console.log('[TeamTab] loaded members:', fresh);
         setMembers(fresh);
         onUpdate({ ...project, members: fresh });
         return fresh;
+      })
+      .catch(err => {
+        console.error('[TeamTab] refresh members failed:', err);
+        setError('โหลดรายชื่อสมาชิกไม่สำเร็จ: ' + (err.message || err));
+        throw err;
       });
   };
 
@@ -952,11 +958,18 @@ function TeamTab({ project, onUpdate, currentRole }) {
           <div className="uppercase muted">สมาชิกทั้งหมด</div>
           <div style={{fontSize:'15px', fontWeight:600, marginTop:'2px'}}>{members.length} คน ในโครงการ</div>
         </div>
-        {isExec && !adding ? (
-          <button className="btn primary" onClick={() => { setAdding(true); setError(''); }}>
-            <Icon name="plus" size={14}/> เพิ่มสมาชิก
-          </button>
-        ) : null}
+        <div className="row gap-8">
+          {isLive ? (
+            <button className="btn ghost sm" onClick={() => refreshMembers().catch(() => {})} title="โหลดรายชื่อใหม่จากเซิร์ฟเวอร์">
+              <Icon name="refresh" size={13}/> รีเฟรช
+            </button>
+          ) : null}
+          {isExec && !adding ? (
+            <button className="btn primary" onClick={() => { setAdding(true); setError(''); }}>
+              <Icon name="plus" size={14}/> เพิ่มสมาชิก
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {adding && isExec ? (

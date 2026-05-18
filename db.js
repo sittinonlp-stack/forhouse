@@ -289,6 +289,24 @@
 
   // Load a single project with all transactions + members
   function getProjectFull(projectId) {
+    // Members fetch wrapped to be resilient: if profiles join fails
+    // (e.g., migration 002 not applied yet), still return the project.
+    var membersPromise = client.from('project_members')
+      .select('*, profiles(id, display_name, email)')
+      .eq('project_id', projectId)
+      .then(function (r) {
+        if (r.error) {
+          console.warn('[db] members fetch failed, retrying without profiles join:', r.error.message);
+          return client.from('project_members').select('*').eq('project_id', projectId)
+            .then(function (r2) { return { data: r2.data || [], error: r2.error }; });
+        }
+        return r;
+      })
+      .catch(function (err) {
+        console.error('[db] members fetch error:', err);
+        return { data: [], error: err };
+      });
+
     return Promise.all([
       client.from('projects').select('*').eq('id', projectId).single(),
       client.from('project_budgets').select('*').eq('project_id', projectId),
@@ -298,9 +316,7 @@
         .select('*, po_items(*)')
         .eq('project_id', projectId)
         .order('date', { ascending: false }),
-      client.from('project_members')
-        .select('*, profiles(id, display_name, email)')
-        .eq('project_id', projectId)
+      membersPromise
     ]).then(function (results) {
       var pRes  = results[0];
       if (pRes.error) throw pRes.error;
@@ -510,31 +526,41 @@
   // ─────────────────────────────────────────────
 
   function getMembersOfProject(projectId) {
+    function mapRows(rows) {
+      return (rows || []).map(function (m) {
+        var p = m.profiles || {};
+        return {
+          id:          m.id,
+          userId:      m.user_id,
+          role:        mapDbRoleToUi(m.role),
+          dbRole:      m.role,
+          addedAt:     m.added_at || '',
+          displayName: p.display_name || '',
+          email:       p.email || '',
+          isOwner:     m.role === 'owner'
+        };
+      });
+    }
     return client.from('project_members')
       .select('*, profiles(id, display_name, email)')
       .eq('project_id', projectId)
       .then(function (res) {
-        if (res.error) throw res.error;
-        return (res.data || []).map(function (m) {
-          var p = m.profiles || {};
-          return {
-            id:          m.id,
-            userId:      m.user_id,
-            role:        mapDbRoleToUi(m.role),
-            dbRole:      m.role,
-            addedAt:     m.added_at || '',
-            displayName: p.display_name || '',
-            email:       p.email || '',
-            isOwner:     m.role === 'owner'
-          };
-        });
+        if (res.error) {
+          console.warn('[db] getMembersOfProject join failed, falling back:', res.error.message);
+          return client.from('project_members').select('*').eq('project_id', projectId)
+            .then(function (r2) {
+              if (r2.error) throw r2.error;
+              return mapRows(r2.data);
+            });
+        }
+        return mapRows(res.data);
       });
   }
 
   function findUserByEmail(email) {
     return client.from('profiles')
       .select('id, display_name, email')
-      .eq('email', email.trim().toLowerCase())
+      .ilike('email', email.trim())
       .maybeSingle()
       .then(function (res) {
         if (res.error) throw res.error;
