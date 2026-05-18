@@ -407,7 +407,7 @@ function App() {
               <Icon name="search" size={14}/>
               <input placeholder="ค้นหาโครงการ / รหัส / เจ้าของงาน..." value={search} onChange={function(e){setSearch(e.target.value);}}/>
             </div>
-            <RoleSwitcher currentRole={currentRole} onChange={setCurrentRole}/>
+            {!liveMode ? <RoleSwitcher currentRole={currentRole} onChange={setCurrentRole}/> : null}
             <div className="avatar" title={displayName}>{initials}</div>
           </header>
         ) : (
@@ -435,7 +435,7 @@ function App() {
                 <button className={theme==='a'?'on':''} onClick={function(){setTheme('a');}}>A · Compact</button>
                 <button className={theme==='b'?'on':''} onClick={function(){setTheme('b');}}>B · Spacious</button>
               </div>
-              <RoleSwitcher currentRole={currentRole} onChange={setCurrentRole}/>
+              {!liveMode ? <RoleSwitcher currentRole={currentRole} onChange={setCurrentRole}/> : null}
               <div className="avatar" title={displayName}>{initials}</div>
             </div>
           </header>

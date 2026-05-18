@@ -18,7 +18,7 @@
   // MAPPERS: DB row → App object
   // ─────────────────────────────────────────────
 
-  function mapProjectRow(row, budgets, cats, incomes, pos) {
+  function mapProjectRow(row, budgets, cats, incomes, pos, members) {
     return {
       id:            row.id,
       code:          row.code,
@@ -42,8 +42,33 @@
       transactions: [].concat(
         (incomes || []).map(mapIncomeRow),
         (pos    || []).map(mapPORow)
-      ).sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); })
+      ).sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); }),
+      members: (members || []).map(function (m) {
+        var p = m.profiles || {};
+        return {
+          id:          m.id,
+          userId:      m.user_id,
+          role:        mapDbRoleToUi(m.role),
+          dbRole:      m.role,
+          addedAt:     m.added_at || '',
+          displayName: p.display_name || '',
+          email:       p.email || '',
+          isOwner:     m.role === 'owner'
+        };
+      })
     };
+  }
+
+  function mapDbRoleToUi(dbRole) {
+    if (dbRole === 'owner' || dbRole === 'admin') return 'executive';
+    if (dbRole === 'manager') return 'manager';
+    return 'staff';
+  }
+
+  function mapUiRoleToDb(uiRole) {
+    if (uiRole === 'executive') return 'admin';
+    if (uiRole === 'manager')   return 'manager';
+    return 'staff';
   }
 
   function mapIncomeRow(row) {
@@ -262,7 +287,7 @@
       });
   }
 
-  // Load a single project with all transactions
+  // Load a single project with all transactions + members
   function getProjectFull(projectId) {
     return Promise.all([
       client.from('projects').select('*').eq('id', projectId).single(),
@@ -272,7 +297,10 @@
       client.from('purchase_orders')
         .select('*, po_items(*)')
         .eq('project_id', projectId)
-        .order('date', { ascending: false })
+        .order('date', { ascending: false }),
+      client.from('project_members')
+        .select('*, profiles(id, display_name, email)')
+        .eq('project_id', projectId)
     ]).then(function (results) {
       var pRes  = results[0];
       if (pRes.error) throw pRes.error;
@@ -281,7 +309,8 @@
         (results[1].data) || [],
         (results[2].data) || [],
         (results[3].data) || [],
-        (results[4].data) || []
+        (results[4].data) || [],
+        (results[5].data) || []
       );
     });
   }
@@ -477,6 +506,67 @@
   }
 
   // ─────────────────────────────────────────────
+  // PROJECT MEMBERS
+  // ─────────────────────────────────────────────
+
+  function getMembersOfProject(projectId) {
+    return client.from('project_members')
+      .select('*, profiles(id, display_name, email)')
+      .eq('project_id', projectId)
+      .then(function (res) {
+        if (res.error) throw res.error;
+        return (res.data || []).map(function (m) {
+          var p = m.profiles || {};
+          return {
+            id:          m.id,
+            userId:      m.user_id,
+            role:        mapDbRoleToUi(m.role),
+            dbRole:      m.role,
+            addedAt:     m.added_at || '',
+            displayName: p.display_name || '',
+            email:       p.email || '',
+            isOwner:     m.role === 'owner'
+          };
+        });
+      });
+  }
+
+  function findUserByEmail(email) {
+    return client.from('profiles')
+      .select('id, display_name, email')
+      .eq('email', email.trim().toLowerCase())
+      .maybeSingle()
+      .then(function (res) {
+        if (res.error) throw res.error;
+        return res.data;
+      });
+  }
+
+  function addProjectMember(projectId, userId, uiRole, addedBy) {
+    var dbRole = mapUiRoleToDb(uiRole);
+    return client.from('project_members')
+      .insert({ project_id: projectId, user_id: userId, role: dbRole, added_by: addedBy })
+      .then(function (res) { if (res.error) throw res.error; });
+  }
+
+  function updateMemberRole(projectId, userId, uiRole) {
+    var dbRole = mapUiRoleToDb(uiRole);
+    return client.from('project_members')
+      .update({ role: dbRole })
+      .eq('project_id', projectId)
+      .eq('user_id', userId)
+      .then(function (res) { if (res.error) throw res.error; });
+  }
+
+  function removeProjectMember(projectId, userId) {
+    return client.from('project_members')
+      .delete()
+      .eq('project_id', projectId)
+      .eq('user_id', userId)
+      .then(function (res) { if (res.error) throw res.error; });
+  }
+
+  // ─────────────────────────────────────────────
   // FILE UPLOAD
   // ─────────────────────────────────────────────
 
@@ -522,7 +612,14 @@
       syncBudgets:       syncBudgets,
       syncCategories:    syncCategories
     },
-    files: { uploadFile: uploadFile }
+    files:   { uploadFile: uploadFile },
+    members: {
+      getProjectMembers: getMembersOfProject,
+      findUserByEmail:   findUserByEmail,
+      addMember:         addProjectMember,
+      updateMemberRole:  updateMemberRole,
+      removeMember:      removeProjectMember
+    }
   };
 
 })();

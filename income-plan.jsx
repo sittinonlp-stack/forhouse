@@ -280,7 +280,8 @@ function IncomePlanEditModal({ project, initial, onClose, onSubmit }) {
 }
 
 /* ============ Income Plan Tab (in project) ============ */
-function IncomePlanTab({ project, onUpdate }) {
+function IncomePlanTab({ project, onUpdate, currentRole }) {
+  const canEdit = (ROLES[currentRole] || ROLES.staff).canEditPlan;
   const [editing, setEditing] = useState(null);  // null | {} for new | plan entry for edit
   const [confirmDel, setConfirmDel] = useState(null);
 
@@ -315,10 +316,16 @@ function IncomePlanTab({ project, onUpdate }) {
 
   return (
     <div>
-      <Alert tone="info" icon="info">
-        <strong>แผนรายรับของโครงการ</strong>
-        <p>กำหนดงวดงาน-วันที่-ยอดเงินที่คาดว่าจะเก็บได้ ระบบจะเทียบกับรายรับจริงและคำนวณยอดค้างรับให้ — งวดที่เลยกำหนดและยังไม่ได้รับครบ จะถูกยกยอดไปแสดงในเดือนถัดไปอัตโนมัติ</p>
-      </Alert>
+      {canEdit ? (
+        <Alert tone="info" icon="info">
+          <strong>แผนรายรับของโครงการ</strong>
+          <p>กำหนดงวดงาน-วันที่-ยอดเงินที่คาดว่าจะเก็บได้ ระบบจะเทียบกับรายรับจริงและคำนวณยอดค้างรับให้ — งวดที่เลยกำหนดและยังไม่ได้รับครบ จะถูกยกยอดไปแสดงในเดือนถัดไปอัตโนมัติ</p>
+        </Alert>
+      ) : (
+        <Alert tone="warn" icon="info">
+          <strong>ดูแผนรายรับเท่านั้น</strong> — เฉพาะผู้บริหารสามารถเพิ่มหรือแก้ไขแผนรายรับได้
+        </Alert>
+      )}
 
       {/* Summary */}
       <div className="stat-grid">
@@ -343,9 +350,11 @@ function IncomePlanTab({ project, onUpdate }) {
             ทั้งหมด {plan.length} งวด · มูลค่าสัญญา {formatBaht(project.contractValue, {compact: true})} บ.
           </div>
         </div>
-        <button className="btn primary" onClick={() => setEditing({})}>
-          <Icon name="plus" size={14}/> เพิ่มแผนงวดงาน
-        </button>
+        {canEdit ? (
+          <button className="btn primary" onClick={() => setEditing({})}>
+            <Icon name="plus" size={14}/> เพิ่มแผนงวดงาน
+          </button>
+        ) : null}
       </div>
 
       {plan.length === 0 ? (
@@ -353,7 +362,7 @@ function IncomePlanTab({ project, onUpdate }) {
           icon="document"
           title="ยังไม่มีแผนรายรับ"
           hint="กำหนดงวดงาน-วันที่-ยอดเงิน เพื่อให้ระบบติดตามและแจ้งเตือนได้"
-          action={<button className="btn primary sm" onClick={() => setEditing({})}><Icon name="plus" size={14}/> เพิ่มงวดแรก</button>}
+          action={canEdit ? <button className="btn primary sm" onClick={() => setEditing({})}><Icon name="plus" size={14}/> เพิ่มงวดแรก</button> : null}
         />
       ) : (
         <div className="table-wrap">
@@ -393,8 +402,12 @@ function IncomePlanTab({ project, onUpdate }) {
                   </td>
                   <td><PlanStatusBadge status={p.status}/></td>
                   <td className="actions">
-                    <button className="icon-btn" onClick={() => setEditing(p)} title="แก้ไข"><Icon name="edit" size={13}/></button>
-                    <button className="icon-btn danger" onClick={() => setConfirmDel(p.id)} title="ลบ"><Icon name="trash" size={13}/></button>
+                    {canEdit ? (
+                      <>
+                        <button className="icon-btn" onClick={() => setEditing(p)} title="แก้ไข"><Icon name="edit" size={13}/></button>
+                        <button className="icon-btn danger" onClick={() => setConfirmDel(p.id)} title="ลบ"><Icon name="trash" size={13}/></button>
+                      </>
+                    ) : null}
                   </td>
                 </tr>
               ))}

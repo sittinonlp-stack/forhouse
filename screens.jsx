@@ -155,8 +155,9 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
 /* ============================================================
    PROJECT VIEW
    ============================================================ */
-function ProjectView({ project, onBack, onUpdate, onOpenBalance }) {
+function ProjectView({ project, onBack, onUpdate, onOpenBalance, currentRole }) {
   const [tab, setTab] = useState('overview');
+  const role = ROLES[currentRole] || ROLES.staff;
   const [editTx, setEditTx] = useState(null);     // income edit
   const [addingIncome, setAddingIncome] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null);
@@ -307,11 +308,11 @@ function ProjectView({ project, onBack, onUpdate, onOpenBalance }) {
       {tab === 'overview' ? (
         <OverviewTab project={project} agg={agg} onOpenPO={(po) => setPODetail(po)}/>
       ) : tab === 'team' ? (
-        <TeamTab project={project} onUpdate={onUpdate}/>
+        <TeamTab project={project} onUpdate={onUpdate} currentRole={currentRole}/>
       ) : tab === 'plan' ? (
-        <IncomePlanTab project={project} onUpdate={onUpdate}/>
+        <IncomePlanTab project={project} onUpdate={onUpdate} currentRole={currentRole}/>
       ) : tab === 'categories' ? (
-        <CategoriesTab project={project} onUpdateCats={updateCategories}/>
+        <CategoriesTab project={project} onUpdateCats={updateCategories} currentRole={currentRole}/>
       ) : tab === 'income' ? (
         <TransactionsTab
           kind={tab}
@@ -824,48 +825,126 @@ function TransactionsTab({ kind, project, onAdd, onEdit, onDelete }) {
 }
 
 /* ===== Team tab ===== */
-function TeamTab({ project, onUpdate }) {
-  const [adding, setAdding] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newRole, setNewRole] = useState('staff');
-  const [newNote, setNewNote] = useState('');
-  const [editingId, setEditingId] = useState(null);
+function TeamTab({ project, onUpdate, currentRole }) {
+  const isExec  = (ROLES[currentRole] || ROLES.staff).canManageCategories;
+  const isLive  = window.db && window.db.isReady();
 
-  const members = project.members || [];
-  const updateMembers = (next) => onUpdate({ ...project, members: next });
+  const [members,    setMembers]    = useState(project.members || []);
+  const [adding,     setAdding]     = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [newRole,    setNewRole]    = useState('staff');
+  const [loading,    setLoading]    = useState(false);
+  const [error,      setError]      = useState('');
 
-  const addMember = () => {
-    const name = newName.trim();
-    if (!name) return;
-    if (members.some(m => m.name === name)) { alert('มีสมาชิกชื่อนี้ในโครงการแล้ว'); return; }
-    updateMembers([...members, {
-      id: uid('u'), name, role: newRole, note: newNote.trim(),
-      addedAt: new Date().toISOString().slice(0,10)
-    }]);
-    setNewName(''); setNewRole('staff'); setNewNote(''); setAdding(false);
+  // Keep local state in sync when project prop refreshes
+  useEffect(() => { setMembers(project.members || []); }, [project.id]);
+
+  const refreshMembers = () => {
+    if (!isLive) return Promise.resolve();
+    return window.db.members.getProjectMembers(project.id)
+      .then(fresh => {
+        setMembers(fresh);
+        onUpdate({ ...project, members: fresh });
+        return fresh;
+      });
   };
 
-  const removeMember = (id) => {
+  const handleAdd = () => {
+    const val = emailInput.trim();
+    if (!val) return;
+
+    if (!isLive) {
+      // Demo mode: add by name directly
+      if (members.some(m => (m.displayName || m.email) === val)) {
+        setError('มีสมาชิกนี้แล้ว'); return;
+      }
+      const next = [...members, {
+        id: uid('u'), userId: 'demo-' + uid(), displayName: val,
+        email: val.includes('@') ? val : val + '@demo', role: newRole,
+        addedAt: new Date().toISOString(), isOwner: false
+      }];
+      setMembers(next);
+      onUpdate({ ...project, members: next });
+      setEmailInput(''); setAdding(false); setError('');
+      return;
+    }
+
+    setLoading(true); setError('');
+    var cu = window.CURRENT_USER || {};
+    window.db.members.findUserByEmail(val)
+      .then(function(user) {
+        if (!user) {
+          setError('ไม่พบอีเมลนี้ในระบบ — ผู้ใช้ต้องสมัครบัญชีก่อน');
+          setLoading(false);
+          return null;
+        }
+        if (members.some(function(m) { return m.userId === user.id; })) {
+          setError('ผู้ใช้นี้เป็นสมาชิกโครงการอยู่แล้ว');
+          setLoading(false);
+          return null;
+        }
+        return window.db.members.addMember(project.id, user.id, newRole, cu.id);
+      })
+      .then(function(result) {
+        if (result === null) return;
+        setEmailInput(''); setAdding(false);
+        return refreshMembers();
+      })
+      .then(function() { setLoading(false); })
+      .catch(function(err) { setError(err.message || 'เกิดข้อผิดพลาด'); setLoading(false); });
+  };
+
+  const handleChangeRole = (member, newR) => {
+    if (member.isOwner) return;
+    if (!isLive) {
+      const next = members.map(m => m.userId === member.userId ? { ...m, role: newR } : m);
+      setMembers(next);
+      onUpdate({ ...project, members: next });
+      return;
+    }
+    window.db.members.updateMemberRole(project.id, member.userId, newR)
+      .then(() => refreshMembers())
+      .catch(err => alert(err.message));
+  };
+
+  const handleRemove = (member) => {
+    if (member.isOwner) { alert('ไม่สามารถลบเจ้าของโครงการได้'); return; }
     if (!confirm('ลบสมาชิกคนนี้ออกจากโครงการ?')) return;
-    updateMembers(members.filter(m => m.id !== id));
+    if (!isLive) {
+      const next = members.filter(m => m.userId !== member.userId);
+      setMembers(next);
+      onUpdate({ ...project, members: next });
+      return;
+    }
+    window.db.members.removeMember(project.id, member.userId)
+      .then(() => refreshMembers())
+      .catch(err => alert(err.message));
   };
 
-  const changeRole = (id, role) => {
-    updateMembers(members.map(m => m.id === id ? { ...m, role } : m));
-  };
-
-  // Group by role
   const byRole = useMemo(() => {
     const g = { executive: [], manager: [], staff: [] };
     for (const m of members) (g[m.role] || g.staff).push(m);
     return g;
   }, [members]);
 
+  const ROLE_PERMS = [
+    { key:'executive', line:'ดูงบดุล · อนุมัติ PO · แก้ไขแผนรายรับ · จัดการหมวดหมู่' },
+    { key:'manager',   line:'อนุมัติ PO ได้ · ไม่สามารถแก้แผนรายรับ/หมวดหมู่' },
+    { key:'staff',     line:'สร้าง PO และทำรายการ · ไม่อนุมัติ · ไม่แก้แผน/หมวดหมู่' }
+  ];
+
   return (
     <div>
       <Alert tone="info" icon="info">
         <strong>สิทธิ์การทำงานในโครงการนี้</strong>
-        <p>กำหนดได้ว่าใครเป็น <strong>ผู้บริหาร</strong> (ดูงบดุล + อนุมัติ), <strong>ผู้จัดการ</strong> (อนุมัติใบ PO), หรือ <strong>เจ้าหน้าที่</strong> (สร้างใบ PO + ทำรายการ) — สิทธิ์ของโครงการนี้จะใช้แทนสิทธิ์ส่วนกลางเมื่อเข้ามาในโครงการ</p>
+        <div style={{marginTop:'8px', display:'flex', flexDirection:'column', gap:'4px'}}>
+          {ROLE_PERMS.map(rp => (
+            <div key={rp.key} className="row gap-8" style={{fontSize:'12.5px'}}>
+              <span className={`role-badge ${rp.key}`} style={{padding:'1px 7px', fontSize:'10px'}}>{ROLES[rp.key].short}</span>
+              <span className="dim">{rp.line}</span>
+            </div>
+          ))}
+        </div>
       </Alert>
 
       <div className="between mb-16">
@@ -873,24 +952,28 @@ function TeamTab({ project, onUpdate }) {
           <div className="uppercase muted">สมาชิกทั้งหมด</div>
           <div style={{fontSize:'15px', fontWeight:600, marginTop:'2px'}}>{members.length} คน ในโครงการ</div>
         </div>
-        {!adding ? (
-          <button className="btn primary" onClick={() => setAdding(true)}>
+        {isExec && !adding ? (
+          <button className="btn primary" onClick={() => { setAdding(true); setError(''); }}>
             <Icon name="plus" size={14}/> เพิ่มสมาชิก
           </button>
         ) : null}
       </div>
 
-      {adding ? (
+      {adding && isExec ? (
         <div className="card mb-16" style={{background:'var(--brand-soft)', borderColor:'var(--border-brand)'}}>
           <div className="form-grid">
-            <div className="field">
-              <label>ชื่อ-นามสกุล <span className="req">*</span></label>
-              <input className="input-base" autoFocus placeholder="เช่น คุณกานต์ ช่างไฟ"
-                value={newName} onChange={e => setNewName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') addMember(); }}/>
+            <div className="field full">
+              <label>{isLive ? 'อีเมลผู้ใช้งาน (ต้องสมัครบัญชีไว้แล้ว)' : 'ชื่อสมาชิก'} <span className="req">*</span></label>
+              <input className="input-base" autoFocus
+                placeholder={isLive ? 'email@example.com' : 'ชื่อ-นามสกุล'}
+                type={isLive ? 'email' : 'text'}
+                value={emailInput}
+                onChange={e => { setEmailInput(e.target.value); setError(''); }}
+                onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }}/>
+              {error ? <span className="hint" style={{color:'var(--danger)'}}>{error}</span> : null}
             </div>
-            <div className="field">
-              <label>บทบาทในโครงการนี้</label>
+            <div className="field full">
+              <label>สิทธิ์ในโครงการนี้</label>
               <div className="role-switcher" style={{width:'100%'}}>
                 {Object.values(ROLES).map(r => (
                   <button key={r.key} className={newRole === r.key ? 'on' : ''} onClick={() => setNewRole(r.key)} type="button" style={{flex:1, justifyContent:'center'}}>
@@ -898,24 +981,31 @@ function TeamTab({ project, onUpdate }) {
                   </button>
                 ))}
               </div>
-              <span className="hint">{ROLES[newRole].label} · {ROLES[newRole].canViewBalance ? 'ดูงบดุลได้' : 'ดูงบดุลไม่ได้'} · {ROLES[newRole].canApprove ? 'อนุมัติ PO ได้' : 'อนุมัติ PO ไม่ได้'}</span>
-            </div>
-            <div className="field full">
-              <label>หน้าที่ / หมายเหตุ</label>
-              <input className="input-base" placeholder="เช่น หัวหน้าทีมก่อสร้าง, ผู้ช่วยประสานงาน"
-                value={newNote} onChange={e => setNewNote(e.target.value)}/>
+              <span className="hint">
+                {ROLES[newRole].label} — {
+                  newRole === 'executive' ? 'ใช้งานได้ทุกอย่าง' :
+                  newRole === 'manager'   ? 'อนุมัติ PO ได้ ยกเว้นแก้แผนรายรับ/หมวดหมู่' :
+                  'สร้าง PO และทำรายการ ไม่อนุมัติ'
+                }
+              </span>
             </div>
           </div>
           <div className="row mt-16" style={{justifyContent:'flex-end', gap:'8px'}}>
-            <button className="btn ghost" onClick={() => { setAdding(false); setNewName(''); setNewNote(''); }}>ยกเลิก</button>
-            <button className="btn primary" onClick={addMember} disabled={!newName.trim()}>
-              <Icon name="check" size={14}/> เพิ่มสมาชิก
+            <button className="btn ghost" onClick={() => { setAdding(false); setEmailInput(''); setError(''); }}>ยกเลิก</button>
+            <button className="btn primary" onClick={handleAdd} disabled={loading || !emailInput.trim()}>
+              {loading ? 'กำลังค้นหา...' : <><Icon name="check" size={14}/> เพิ่มสมาชิก</>}
             </button>
           </div>
         </div>
       ) : null}
 
-      {/* Members by role */}
+      {!isExec ? (
+        <Alert tone="warn" icon="info">
+          <strong>คุณมีสิทธิ์ดูรายชื่อสมาชิก</strong> เฉพาะผู้บริหารเท่านั้นที่สามารถเพิ่ม/ลบ/เปลี่ยนสิทธิ์สมาชิกได้
+        </Alert>
+      ) : null}
+
+      {/* Members grouped by role */}
       {Object.entries(ROLES).map(([key, r]) => {
         const list = byRole[key] || [];
         if (list.length === 0) return null;
@@ -925,31 +1015,43 @@ function TeamTab({ project, onUpdate }) {
               <span className={`role-badge ${key}`}>{r.short}</span>
               <span style={{fontSize:'14px', fontWeight:600}}>{r.label}</span>
               <Badge>{list.length} คน</Badge>
-              <span className="dim" style={{fontSize:'12px', marginLeft:'auto'}}>
-                {r.canViewBalance ? '✓ ดูงบดุล' : '✗ ดูงบดุลไม่ได้'} · {r.canApprove ? '✓ อนุมัติ PO' : '✗ อนุมัติไม่ได้'}
+              <span className="dim" style={{fontSize:'11.5px', marginLeft:'auto'}}>
+                {r.canEditPlan ? '✓ แผนรายรับ' : '✗ แผนรายรับ'} · {r.canApprove ? '✓ อนุมัติ PO' : '✗ อนุมัติ PO'} · {r.canViewBalance ? '✓ งบดุล' : '✗ งบดุล'}
               </span>
             </div>
             <div className="member-list">
-              {list.map(m => (
-                <div key={m.id} className="member-row">
-                  <div className="avatar member-avatar" style={{background: r.color + '30', color: r.color, border: '1px solid ' + r.color + '50'}}>
-                    {m.name.split(' ').slice(-1)[0].slice(0, 2)}
+              {list.map(m => {
+                const initials = (m.displayName || m.email || '?').split(' ').map(w => w[0] || '').join('').slice(0,2).toUpperCase() || '??';
+                return (
+                  <div key={m.id || m.userId} className="member-row">
+                    <div className="avatar member-avatar" style={{background: r.color + '30', color: r.color, border: '1px solid ' + r.color + '50', fontSize:'11px'}}>
+                      {initials}
+                    </div>
+                    <div style={{flex:1, minWidth:0}}>
+                      <div style={{fontWeight:500, fontSize:'13.5px'}}>{m.displayName || m.email || 'ไม่ระบุชื่อ'}</div>
+                      <div className="dim" style={{fontSize:'11.5px'}}>
+                        {m.email || ''}
+                        {m.isOwner ? <span style={{marginLeft:'6px', color:'var(--brand-bright)', fontSize:'10px'}}>เจ้าของโครงการ</span> : null}
+                      </div>
+                    </div>
+                    {m.addedAt ? (
+                      <div className="dim mono" style={{fontSize:'11px'}}>เพิ่ม {formatDate(m.addedAt.slice(0,10))}</div>
+                    ) : null}
+                    {isExec && !m.isOwner ? (
+                      <>
+                        <select className="input-base" value={m.role}
+                          onChange={e => handleChangeRole(m, e.target.value)}
+                          style={{padding:'4px 8px', fontSize:'12px', width:'auto'}}>
+                          {Object.values(ROLES).map(rr => <option key={rr.key} value={rr.key}>{rr.short} — {rr.label}</option>)}
+                        </select>
+                        <button className="icon-btn danger" onClick={() => handleRemove(m)} title="ลบสมาชิก">
+                          <Icon name="trash" size={13}/>
+                        </button>
+                      </>
+                    ) : null}
                   </div>
-                  <div style={{flex:1, minWidth:0}}>
-                    <div style={{fontWeight:500, fontSize:'13.5px'}}>{m.name}</div>
-                    <div className="dim" style={{fontSize:'12px'}}>{m.note || <em>ไม่ได้ระบุหน้าที่</em>}</div>
-                  </div>
-                  <div className="dim mono" style={{fontSize:'11px'}}>
-                    เพิ่ม {formatDate(m.addedAt)}
-                  </div>
-                  <select className="input-base" value={m.role} onChange={e => changeRole(m.id, e.target.value)} style={{padding:'4px 8px', fontSize:'12px', width:'auto'}}>
-                    {Object.values(ROLES).map(rr => <option key={rr.key} value={rr.key}>{rr.short}</option>)}
-                  </select>
-                  <button className="icon-btn danger" onClick={() => removeMember(m.id)} title="ลบสมาชิก">
-                    <Icon name="trash" size={13}/>
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         );
@@ -959,8 +1061,8 @@ function TeamTab({ project, onUpdate }) {
         <Empty
           icon="users"
           title="ยังไม่มีสมาชิกในโครงการ"
-          hint="เพิ่มทีมงานเพื่อกำหนดสิทธิ์การทำงานในโครงการนี้"
-          action={<button className="btn primary sm" onClick={() => setAdding(true)}><Icon name="plus" size={14}/> เพิ่มสมาชิกคนแรก</button>}
+          hint={isExec ? 'เพิ่มทีมงานเพื่อกำหนดสิทธิ์การทำงานในโครงการนี้' : 'ยังไม่มีสมาชิกในโครงการนี้'}
+          action={isExec ? <button className="btn primary sm" onClick={() => setAdding(true)}><Icon name="plus" size={14}/> เพิ่มสมาชิกคนแรก</button> : null}
         />
       ) : null}
     </div>
@@ -968,7 +1070,8 @@ function TeamTab({ project, onUpdate }) {
 }
 
 /* ===== Categories tab ===== */
-function CategoriesTab({ project, onUpdateCats }) {
+function CategoriesTab({ project, onUpdateCats, currentRole }) {
+  const canEdit = (ROLES[currentRole] || ROLES.staff).canManageCategories;
   const [adding, setAdding] = useState({ kind: null, name: '' });
   const [editing, setEditing] = useState({ kind: null, oldName: '', newName: '' });
 
@@ -1016,10 +1119,16 @@ function CategoriesTab({ project, onUpdateCats }) {
 
   return (
     <div>
-      <Alert tone="info" icon="info">
-        <strong>จัดการหมวดหมู่ย่อย</strong>
-        <p>ปรับแต่งหมวดหมู่ย่อยของแต่ละประเภทรายรับ/รายจ่าย เพื่อให้สอดคล้องกับลักษณะงานในโครงการนี้ — เพิ่ม, แก้ไข, หรือลบได้ตามต้องการ</p>
-      </Alert>
+      {canEdit ? (
+        <Alert tone="info" icon="info">
+          <strong>จัดการหมวดหมู่ย่อย</strong>
+          <p>ปรับแต่งหมวดหมู่ย่อยของแต่ละประเภทรายรับ/รายจ่าย เพื่อให้สอดคล้องกับลักษณะงานในโครงการนี้ — เพิ่ม, แก้ไข, หรือลบได้ตามต้องการ</p>
+        </Alert>
+      ) : (
+        <Alert tone="warn" icon="info">
+          <strong>ดูหมวดหมู่ย่อยเท่านั้น</strong> — เฉพาะผู้บริหารสามารถเพิ่ม แก้ไข หรือลบหมวดหมู่ได้
+        </Alert>
+      )}
       <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(320px, 1fr))', gap:'16px'}}>
         {ALL_KINDS.map(kind => {
           const meta = KINDS[kind];
@@ -1038,9 +1147,11 @@ function CategoriesTab({ project, onUpdateCats }) {
                     <div className="dim" style={{fontSize:'11.5px'}}>{list.length} หมวดย่อย</div>
                   </div>
                 </div>
-                <button className="btn sm" onClick={() => setAdding({ kind, name: '' })}>
-                  <Icon name="plus" size={12}/> เพิ่ม
-                </button>
+                {canEdit ? (
+                  <button className="btn sm" onClick={() => setAdding({ kind, name: '' })}>
+                    <Icon name="plus" size={12}/> เพิ่ม
+                  </button>
+                ) : null}
               </div>
               <div className="col gap-4">
                 {list.map(name => {
@@ -1048,7 +1159,7 @@ function CategoriesTab({ project, onUpdateCats }) {
                   const count = (usage[kind] && usage[kind][name]) || 0;
                   return (
                     <div key={name} className="row" style={{padding:'8px 10px', background:'var(--bg-2)', borderRadius:'var(--r-sm)', justifyContent:'space-between'}}>
-                      {isEditing ? (
+                      {isEditing && canEdit ? (
                         <>
                           <input className="input-base" autoFocus value={editing.newName} onChange={e => setEditing({...editing, newName: e.target.value})}
                             onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing({kind:null, oldName:'', newName:''}); }}
@@ -1064,16 +1175,18 @@ function CategoriesTab({ project, onUpdateCats }) {
                             <span style={{fontSize:'13px'}}>{name}</span>
                             {count > 0 ? <Badge>{count}</Badge> : <span className="dim" style={{fontSize:'11px'}}>ยังไม่ใช้</span>}
                           </div>
-                          <div className="row gap-4">
-                            <button className="icon-btn" onClick={() => setEditing({ kind, oldName: name, newName: name })} title="แก้ไข"><Icon name="edit" size={13}/></button>
-                            <button className="icon-btn danger" onClick={() => removeCat(kind, name)} title="ลบ"><Icon name="trash" size={13}/></button>
-                          </div>
+                          {canEdit ? (
+                            <div className="row gap-4">
+                              <button className="icon-btn" onClick={() => setEditing({ kind, oldName: name, newName: name })} title="แก้ไข"><Icon name="edit" size={13}/></button>
+                              <button className="icon-btn danger" onClick={() => removeCat(kind, name)} title="ลบ"><Icon name="trash" size={13}/></button>
+                            </div>
+                          ) : null}
                         </>
                       )}
                     </div>
                   );
                 })}
-                {adding.kind === kind ? (
+                {adding.kind === kind && canEdit ? (
                   <div className="row gap-4" style={{padding:'8px 10px', background:'var(--brand-soft)', borderRadius:'var(--r-sm)'}}>
                     <input className="input-base" autoFocus placeholder="ชื่อหมวดหมู่ใหม่..."
                       value={adding.name} onChange={e => setAdding({...adding, name: e.target.value})}

@@ -373,12 +373,18 @@ function getVendorHistory(project, kind, vendorName, excludeId) {
 }
 
 /* ============ Per-project effective role ============ */
-// Given a project, current user name, and global fallback role,
-// return the role to use for this project.
+// In live mode matches by userId; falls back to name for demo mode.
 function getEffectiveRole(project, userName, globalRole) {
-  if (!project || !project.members) return globalRole;
-  const member = project.members.find(m => m.name === userName);
-  return member ? member.role : globalRole;
+  if (!project || !project.members || !project.members.length) return globalRole;
+  const cu = window.CURRENT_USER;
+  // Live mode: match by userId
+  if (cu && cu.id && cu.id !== 'demo') {
+    const byId = project.members.find(m => m.userId === cu.id);
+    if (byId) return byId.role; // already mapped to UI role by db.js
+  }
+  // Demo mode: match by name
+  const byName = project.members.find(m => (m.displayName || m.name) === userName);
+  return byName ? byName.role : globalRole;
 }
 
 function monthlyTrend(transactions) {

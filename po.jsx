@@ -11,9 +11,9 @@ const CURRENT_USER = new Proxy(
 
 /* ============ ROLE / PERMISSIONS ============ */
 const ROLES = {
-  staff:      { key: 'staff',     label: 'เจ้าหน้าที่',  short: 'STAFF',    color: '#94a3b8', canViewBalance: false, canApprove: false },
-  manager:    { key: 'manager',   label: 'ผู้จัดการ',    short: 'MANAGER',  color: '#60a5fa', canViewBalance: false, canApprove: true },
-  executive:  { key: 'executive', label: 'ผู้บริหาร',    short: 'EXEC',     color: '#22c55e', canViewBalance: true,  canApprove: true }
+  staff:      { key: 'staff',     label: 'เจ้าหน้าที่',  short: 'STAFF',    color: '#94a3b8', canViewBalance: false, canApprove: false, canEditPlan: false, canManageCategories: false },
+  manager:    { key: 'manager',   label: 'ผู้จัดการ',    short: 'MANAGER',  color: '#60a5fa', canViewBalance: false, canApprove: true,  canEditPlan: false, canManageCategories: false },
+  executive:  { key: 'executive', label: 'ผู้บริหาร',    short: 'EXEC',     color: '#22c55e', canViewBalance: true,  canApprove: true,  canEditPlan: true,  canManageCategories: true  }
 };
 
 /* ============ PO Status Badge ============ */
