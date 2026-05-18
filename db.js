@@ -39,6 +39,11 @@
         acc[c.kind].push(c.name);
         return acc;
       }, { income: [], material: [], labor: [], subcontract: [], machine: [], other: [] }),
+      categoryCosts: (cats || []).reduce(function (acc, c) {
+        if (!acc[c.kind]) acc[c.kind] = {};
+        acc[c.kind][c.name] = Number(c.cost_price || 0);
+        return acc;
+      }, { income: {}, material: {}, labor: {}, subcontract: {}, machine: {}, other: {} }),
       transactions: [].concat(
         (incomes || []).map(mapIncomeRow),
         (pos    || []).map(mapPORow)
@@ -130,6 +135,7 @@
       paidAt:          row.paid_at || null,
       paymentSlip:     row.payment_slip_url || null,
       attachment:      row.payment_slip_url || null,
+      images:          Array.isArray(row.images) ? row.images : (row.images ? JSON.parse(row.images) : []),
       _dbSource:       'po'
     };
   }
@@ -181,6 +187,7 @@
       paid_by_name:    po.paidBy || '',
       paid_at:         po.paidAt || null,
       payment_slip_url:po.paymentSlip || null,
+      images:          Array.isArray(po.images) ? po.images : [],
       updated_at:      new Date().toISOString()
     };
   }
@@ -403,13 +410,15 @@
       .then(function (res) { if (res.error) throw res.error; });
   }
 
-  function syncCategories(projectId, kind, names) {
+  function syncCategories(projectId, kind, names, costs) {
+    // names: string[], costs: optional { [name]: cost }
+    var costMap = costs || {};
     return client.from('categories').delete().eq('project_id', projectId).eq('kind', kind)
       .then(function (res) {
         if (res.error) throw res.error;
         if (!names || !names.length) return;
         var rows = names.map(function (name, i) {
-          return { project_id: projectId, kind: kind, name: name, sort_order: i };
+          return { project_id: projectId, kind: kind, name: name, cost_price: Number(costMap[name] || 0), sort_order: i };
         });
         return client.from('categories').insert(rows)
           .then(function (r) { if (r.error) throw r.error; });
@@ -507,18 +516,33 @@
       ops.push(syncBudgets(pid, newProject.budgets));
     }
 
-    // Categories (per kind)
+    // Categories (per kind) — sync if names OR costs changed
     var allKinds = ['income','material','labor','subcontract','machine','other'];
     allKinds.forEach(function (kind) {
-      var o = JSON.stringify((oldProject.categories || {})[kind] || []);
-      var n = JSON.stringify((newProject.categories || {})[kind] || []);
-      if (o !== n) ops.push(syncCategories(pid, kind, (newProject.categories || {})[kind] || []));
+      var oldNames = (oldProject.categories || {})[kind] || [];
+      var newNames = (newProject.categories || {})[kind] || [];
+      var oldCosts = ((oldProject.categoryCosts || {})[kind]) || {};
+      var newCosts = ((newProject.categoryCosts || {})[kind]) || {};
+      var changedNames = JSON.stringify(oldNames) !== JSON.stringify(newNames);
+      var changedCosts = JSON.stringify(oldCosts) !== JSON.stringify(newCosts);
+      if (changedNames || changedCosts) {
+        ops.push(syncCategories(pid, kind, newNames, newCosts));
+      }
     });
 
     // Transactions
     ops.push(syncTransactions(pid, oldProject.transactions || [], newProject.transactions || [], userId));
 
     return Promise.all(ops);
+  }
+
+  // ─────────────────────────────────────────────
+  // DELETE PROJECT (cascades to all related rows)
+  // ─────────────────────────────────────────────
+
+  function deleteProject(projectId) {
+    return client.from('projects').delete().eq('id', projectId)
+      .then(function (res) { if (res.error) throw res.error; });
   }
 
   // ─────────────────────────────────────────────
@@ -633,6 +657,7 @@
       getProjects:       getProjects,
       getProjectFull:    getProjectFull,
       createProject:     createProject,
+      deleteProject:     deleteProject,
       syncProject:       syncProject,
       updateProjectMeta: updateProjectMeta,
       syncBudgets:       syncBudgets,

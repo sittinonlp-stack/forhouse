@@ -155,9 +155,11 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
 /* ============================================================
    PROJECT VIEW
    ============================================================ */
-function ProjectView({ project, onBack, onUpdate, onOpenBalance, currentRole }) {
+function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, currentRole }) {
   const [tab, setTab] = useState('overview');
   const role = ROLES[currentRole] || ROLES.staff;
+  const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [editTx, setEditTx] = useState(null);     // income edit
   const [addingIncome, setAddingIncome] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null);
@@ -198,6 +200,12 @@ function ProjectView({ project, onBack, onUpdate, onOpenBalance, currentRole }) 
   const updateCategories = useCallback((kind, cats) => {
     const np = { ...project, categories: { ...project.categories, [kind]: cats } };
     onUpdate(np);
+  }, [project, onUpdate]);
+
+  const updateCategoryCost = useCallback((kind, name, cost) => {
+    const all = { ...(project.categoryCosts || {}) };
+    all[kind] = { ...(all[kind] || {}), [name]: Number(cost) || 0 };
+    onUpdate({ ...project, categoryCosts: all });
   }, [project, onUpdate]);
 
   const TABS = [
@@ -308,11 +316,11 @@ function ProjectView({ project, onBack, onUpdate, onOpenBalance, currentRole }) 
       {tab === 'overview' ? (
         <OverviewTab project={project} agg={agg} onOpenPO={(po) => setPODetail(po)}/>
       ) : tab === 'team' ? (
-        <TeamTab project={project} onUpdate={onUpdate} currentRole={currentRole}/>
+        <TeamTab project={project} onUpdate={onUpdate} currentRole={currentRole} onDeleteProject={() => setConfirmDeleteProject(true)}/>
       ) : tab === 'plan' ? (
         <IncomePlanTab project={project} onUpdate={onUpdate} currentRole={currentRole}/>
       ) : tab === 'categories' ? (
-        <CategoriesTab project={project} onUpdateCats={updateCategories} currentRole={currentRole}/>
+        <CategoriesTab project={project} onUpdateCats={updateCategories} onUpdateCost={updateCategoryCost} currentRole={currentRole}/>
       ) : tab === 'income' ? (
         <TransactionsTab
           kind={tab}
@@ -377,6 +385,31 @@ function ProjectView({ project, onBack, onUpdate, onOpenBalance, currentRole }) 
         onClose={() => setConfirmDel(null)}
         onConfirm={() => { removeTx(confirmDel); setConfirmDel(null); }}
       />
+      {confirmDeleteProject ? (
+        <Modal open={true} onClose={() => { setConfirmDeleteProject(false); setDeleteConfirmText(''); }} title="ยืนยันการลบโครงการ"
+          footer={<>
+            <button className="btn ghost" onClick={() => { setConfirmDeleteProject(false); setDeleteConfirmText(''); }}>ยกเลิก</button>
+            <button className="btn danger"
+              disabled={deleteConfirmText !== project.name}
+              onClick={() => { setConfirmDeleteProject(false); setDeleteConfirmText(''); onDelete && onDelete(); }}>
+              <Icon name="trash" size={14}/> ลบถาวร
+            </button>
+          </>}>
+          <div className="col gap-16">
+            <Alert tone="danger" icon="warn">
+              <strong>การลบนี้ไม่สามารถยกเลิกได้</strong>
+              <p style={{margin:'6px 0 0', fontSize:'12.5px'}}>
+                ระบบจะลบ <strong>โครงการ "{project.name}"</strong> รวมถึงรายรับ ใบสั่งซื้อ แผนรายรับ สมาชิก และไฟล์แนบทั้งหมดอย่างถาวร
+              </p>
+            </Alert>
+            <div className="field" style={{margin:0}}>
+              <label>พิมพ์ชื่อโครงการเพื่อยืนยัน: <strong>{project.name}</strong></label>
+              <input className="input-base" autoFocus placeholder={project.name}
+                value={deleteConfirmText} onChange={e => setDeleteConfirmText(e.target.value)}/>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
@@ -825,7 +858,7 @@ function TransactionsTab({ kind, project, onAdd, onEdit, onDelete }) {
 }
 
 /* ===== Team tab ===== */
-function TeamTab({ project, onUpdate, currentRole }) {
+function TeamTab({ project, onUpdate, currentRole, onDeleteProject }) {
   const isExec  = (ROLES[currentRole] || ROLES.staff).canManageCategories;
   const isLive  = window.db && window.db.isReady();
 
@@ -1078,27 +1111,51 @@ function TeamTab({ project, onUpdate, currentRole }) {
           action={isExec ? <button className="btn primary sm" onClick={() => setAdding(true)}><Icon name="plus" size={14}/> เพิ่มสมาชิกคนแรก</button> : null}
         />
       ) : null}
+
+      {/* Danger Zone — Delete Project (executive only) */}
+      {isExec && onDeleteProject ? (
+        <div className="card mt-24" style={{borderColor:'rgba(239,68,68,.4)', background:'rgba(239,68,68,.04)'}}>
+          <div className="row gap-12" style={{alignItems:'flex-start'}}>
+            <Icon name="warn" size={24} style={{color:'var(--danger)', flexShrink:0, marginTop:'2px'}}/>
+            <div style={{flex:1}}>
+              <div style={{fontSize:'14px', fontWeight:600, color:'var(--danger)'}}>เขตอันตราย — ลบโครงการ</div>
+              <div className="dim" style={{fontSize:'12.5px', marginTop:'4px', lineHeight:1.6}}>
+                การลบจะทำให้ข้อมูลทั้งหมดของโครงการนี้หายไปถาวร รวมถึง รายรับ ใบสั่งซื้อ แผนรายรับ สมาชิก และไฟล์แนบ — กู้คืนไม่ได้
+              </div>
+            </div>
+            <button className="btn danger" onClick={onDeleteProject}>
+              <Icon name="trash" size={14}/> ลบโครงการนี้
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 /* ===== Categories tab ===== */
-function CategoriesTab({ project, onUpdateCats, currentRole }) {
+function CategoriesTab({ project, onUpdateCats, onUpdateCost, currentRole }) {
   const canEdit = (ROLES[currentRole] || ROLES.staff).canManageCategories;
   const [adding, setAdding] = useState({ kind: null, name: '' });
   const [editing, setEditing] = useState({ kind: null, oldName: '', newName: '' });
+  const costs = project.categoryCosts || {};
 
+  // Per-category aggregation: { kind: { name: { count, actual } } }
   const usage = useMemo(() => {
     const m = {};
     for (const t of project.transactions) {
       if (t.kind === 'income') {
         m.income = m.income || {};
-        m.income[t.category] = (m.income[t.category] || 0) + 1;
+        m.income[t.category] = m.income[t.category] || { count: 0, actual: 0 };
+        m.income[t.category].count += 1;
+        m.income[t.category].actual += (t.amount || 0);
       } else {
         m[t.kind] = m[t.kind] || {};
         const items = getPOItems(t);
         for (const it of items) {
-          m[t.kind][it.category] = (m[t.kind][it.category] || 0) + 1;
+          m[t.kind][it.category] = m[t.kind][it.category] || { count: 0, actual: 0 };
+          m[t.kind][it.category].count += 1;
+          m[t.kind][it.category].actual += (it.amount || 0);
         }
       }
     }
@@ -1115,9 +1172,9 @@ function CategoriesTab({ project, onUpdateCats, currentRole }) {
   };
 
   const removeCat = (kind, name) => {
-    const count = (usage[kind] && usage[kind][name]) || 0;
-    if (count > 0) {
-      if (!window.confirm(`หมวด "${name}" มีรายการใช้งานอยู่ ${count} รายการ ลบหมวดนี้จะไม่ลบรายการ แต่รายการจะยังคงผูกชื่อหมวดเดิม ดำเนินการต่อ?`)) return;
+    const u = (usage[kind] && usage[kind][name]) || { count: 0, actual: 0 };
+    if (u.count > 0) {
+      if (!window.confirm(`หมวด "${name}" มีรายการใช้งานอยู่ ${u.count} รายการ ลบหมวดนี้จะไม่ลบรายการ แต่รายการจะยังคงผูกชื่อหมวดเดิม ดำเนินการต่อ?`)) return;
     }
     onUpdateCats(kind, (project.categories[kind] || []).filter(c => c !== name));
   };
@@ -1166,14 +1223,18 @@ function CategoriesTab({ project, onUpdateCats, currentRole }) {
                   </button>
                 ) : null}
               </div>
-              <div className="col gap-4">
+              <div className="col gap-6">
                 {list.map(name => {
                   const isEditing = editing.kind === kind && editing.oldName === name;
-                  const count = (usage[kind] && usage[kind][name]) || 0;
+                  const u = (usage[kind] && usage[kind][name]) || { count: 0, actual: 0 };
+                  const cost = ((costs[kind] || {})[name]) || 0;
+                  const diff = kind === 'income' ? (u.actual - cost) : (cost - u.actual);
+                  const hasCost = cost > 0;
+                  const hasActual = u.actual > 0;
                   return (
-                    <div key={name} className="row" style={{padding:'8px 10px', background:'var(--bg-2)', borderRadius:'var(--r-sm)', justifyContent:'space-between'}}>
+                    <div key={name} style={{padding:'10px', background:'var(--bg-2)', borderRadius:'var(--r-sm)'}}>
                       {isEditing && canEdit ? (
-                        <>
+                        <div className="row" style={{justifyContent:'space-between'}}>
                           <input className="input-base" autoFocus value={editing.newName} onChange={e => setEditing({...editing, newName: e.target.value})}
                             onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing({kind:null, oldName:'', newName:''}); }}
                             style={{padding:'4px 8px', fontSize:'13px'}}/>
@@ -1181,19 +1242,49 @@ function CategoriesTab({ project, onUpdateCats, currentRole }) {
                             <button className="icon-btn" onClick={saveEdit} title="บันทึก"><Icon name="check" size={14}/></button>
                             <button className="icon-btn" onClick={() => setEditing({kind:null, oldName:'', newName:''})}><Icon name="close" size={14}/></button>
                           </div>
-                        </>
+                        </div>
                       ) : (
                         <>
-                          <div className="row gap-8" style={{minWidth:0, flex:1}}>
-                            <span style={{fontSize:'13px'}}>{name}</span>
-                            {count > 0 ? <Badge>{count}</Badge> : <span className="dim" style={{fontSize:'11px'}}>ยังไม่ใช้</span>}
-                          </div>
-                          {canEdit ? (
-                            <div className="row gap-4">
-                              <button className="icon-btn" onClick={() => setEditing({ kind, oldName: name, newName: name })} title="แก้ไข"><Icon name="edit" size={13}/></button>
-                              <button className="icon-btn danger" onClick={() => removeCat(kind, name)} title="ลบ"><Icon name="trash" size={13}/></button>
+                          <div className="row" style={{justifyContent:'space-between', marginBottom:'6px'}}>
+                            <div className="row gap-8" style={{minWidth:0, flex:1}}>
+                              <span style={{fontSize:'13px', fontWeight:500}}>{name}</span>
+                              {u.count > 0 ? <Badge>{u.count}</Badge> : <span className="dim" style={{fontSize:'11px'}}>ยังไม่ใช้</span>}
                             </div>
-                          ) : null}
+                            {canEdit ? (
+                              <div className="row gap-4">
+                                <button className="icon-btn" onClick={() => setEditing({ kind, oldName: name, newName: name })} title="แก้ไข"><Icon name="edit" size={13}/></button>
+                                <button className="icon-btn danger" onClick={() => removeCat(kind, name)} title="ลบ"><Icon name="trash" size={13}/></button>
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="row gap-8" style={{fontSize:'11.5px'}}>
+                            <div style={{flex:1, minWidth:0}}>
+                              <div className="dim" style={{fontSize:'10px', textTransform:'uppercase', letterSpacing:'0.05em'}}>{kind === 'income' ? 'ราคาเป้าหมาย' : 'งบ/ต้นทุน'}</div>
+                              {canEdit ? (
+                                <div className="with-suffix" style={{marginTop:'2px'}}>
+                                  <input className="input-base num-input mono" inputMode="decimal" placeholder="0"
+                                    value={cost === 0 ? '' : cost}
+                                    onChange={e => onUpdateCost(kind, name, parseFloat(String(e.target.value).replace(/,/g,'')) || 0)}
+                                    style={{padding:'3px 6px', fontSize:'11.5px'}}/>
+                                  <span className="suffix" style={{fontSize:'10px'}}>บ.</span>
+                                </div>
+                              ) : (
+                                <div className="mono" style={{fontSize:'12px', marginTop:'2px'}}>{hasCost ? formatBaht(cost) : '—'}</div>
+                              )}
+                            </div>
+                            <div style={{flex:1, minWidth:0}}>
+                              <div className="dim" style={{fontSize:'10px', textTransform:'uppercase', letterSpacing:'0.05em'}}>{kind === 'income' ? 'รับจริง' : 'จ่ายจริง'}</div>
+                              <div className={'mono ' + (hasActual ? '' : 'dim')} style={{fontSize:'12px', marginTop:'2px'}}>{hasActual ? formatBaht(u.actual) : '—'}</div>
+                            </div>
+                            <div style={{flex:1, minWidth:0, textAlign:'right'}}>
+                              <div className="dim" style={{fontSize:'10px', textTransform:'uppercase', letterSpacing:'0.05em'}}>กำไร/ขาดทุน</div>
+                              {hasCost && hasActual ? (
+                                <div className={'mono ' + (diff >= 0 ? 'pos' : 'neg')} style={{fontSize:'12px', marginTop:'2px', fontWeight:600}}>
+                                  {diff >= 0 ? '+' : ''}{formatBaht(diff)}
+                                </div>
+                              ) : <div className="dim mono" style={{fontSize:'12px', marginTop:'2px'}}>—</div>}
+                            </div>
+                          </div>
                         </>
                       )}
                     </div>
@@ -1215,6 +1306,24 @@ function CategoriesTab({ project, onUpdateCats, currentRole }) {
                   </div>
                 ) : null}
               </div>
+
+              {/* Per-kind summary */}
+              {(() => {
+                const kindCosts  = list.reduce((s, n) => s + (((costs[kind] || {})[n]) || 0), 0);
+                const kindActual = list.reduce((s, n) => s + (((usage[kind] || {})[n] || {}).actual || 0), 0);
+                if (kindCosts === 0 && kindActual === 0) return null;
+                const kindDiff = kind === 'income' ? (kindActual - kindCosts) : (kindCosts - kindActual);
+                return (
+                  <div className="row" style={{marginTop:'12px', paddingTop:'10px', borderTop:'1px dashed var(--border)', justifyContent:'space-between', fontSize:'12px'}}>
+                    <div className="dim uppercase" style={{fontSize:'10px', letterSpacing:'0.05em'}}>รวมทั้งหมวด</div>
+                    <div className={'mono ' + (kindCosts === 0 || kindActual === 0 ? 'dim' : kindDiff >= 0 ? 'pos' : 'neg')} style={{fontWeight:600}}>
+                      {kindCosts > 0 && kindActual > 0
+                        ? (kindDiff >= 0 ? '+' : '') + formatBaht(kindDiff) + ' บาท'
+                        : formatBaht(kindActual) + ' / ' + formatBaht(kindCosts)}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           );
         })}

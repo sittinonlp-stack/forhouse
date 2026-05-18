@@ -264,6 +264,20 @@ function App() {
     }
   }, [projects, user, liveMode]);
 
+  var removeProject = useCallback(function(projectId) {
+    var p = projects.find(function(pr) { return pr.id === projectId; });
+    setProjects(function(arr) { return arr.filter(function(pr) { return pr.id !== projectId; }); });
+    if (liveMode && _dbReady) {
+      window.db.projects.deleteProject(projectId)
+        .catch(function(err) {
+          console.error('Delete project error:', err);
+          setSyncError('ลบโครงการไม่สำเร็จ: ' + (err.message || err));
+          setTimeout(function() { setSyncError(''); }, 5000);
+          if (p) setProjects(function(arr) { return [p, ...arr]; });
+        });
+    }
+  }, [projects, liveMode]);
+
   var addProject = useCallback(function(proj) {
     if (!liveMode || !_dbReady || !user) {
       setProjects(function(arr) { return [Object.assign({}, proj, { id: uid('p'), transactions: [] }), ...arr]; });
@@ -467,6 +481,7 @@ function App() {
               project={currentProject}
               onBack={function(){goto({name:'dashboard'});}}
               onUpdate={updateProject}
+              onDelete={function(){ removeProject(currentProject.id); goto({name:'dashboard'}); }}
               onOpenBalance={function(){goto({name:'balance',projectId:currentProject.id});}}
               currentRole={getEffectiveRole(currentProject, cu.name, currentRole)}
             />

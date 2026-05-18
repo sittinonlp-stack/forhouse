@@ -80,4 +80,16 @@
   window.formatDateLong = formatDateLong;
   window.uid = uid;
   window.genId = genId;
+
+  // Category helpers: support both legacy string[] and {name, costPrice}[] formats
+  function catName(c)  { return typeof c === 'string' ? c : (c && c.name) || ''; }
+  function catCost(c)  { return typeof c === 'string' ? 0  : Number((c && c.costPrice) || 0); }
+  function catNames(list) { return (list || []).map(catName); }
+  function findCat(list, name) {
+    return (list || []).find(function(c) { return catName(c) === name; });
+  }
+  window.catName = catName;
+  window.catCost = catCost;
+  window.catNames = catNames;
+  window.findCat = findCat;
 })();

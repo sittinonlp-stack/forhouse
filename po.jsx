@@ -79,6 +79,42 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
   const [code, setCode] = useState(initial ? initial.code : ('PO-' + String(Date.now()).slice(-6)));
   const [vendor, setVendor] = useState(initial ? initial.vendor || '' : '');
   const [notes, setNotes] = useState(initial ? initial.description || '' : '');
+  const [images, setImages] = useState(initial && Array.isArray(initial.images) ? initial.images.slice() : []);
+  const [uploading, setUploading] = useState(false);
+  const [previewImg, setPreviewImg] = useState(null);
+
+  const handleImageSelect = (fileList) => {
+    const remaining = 10 - images.length;
+    if (remaining <= 0) { alert('แนบรูปได้สูงสุด 10 รูป'); return; }
+    const files = Array.from(fileList).slice(0, remaining)
+      .filter(f => f.type.startsWith('image/'));
+    if (files.length === 0) return;
+
+    const isLive = window.db && window.db.isReady();
+    if (!isLive) {
+      // Demo mode: store as data URL
+      Promise.all(files.map(f => new Promise(resolve => {
+        const r = new FileReader();
+        r.onload = () => resolve({ url: r.result, name: f.name, size: f.size, mime: f.type });
+        r.readAsDataURL(f);
+      }))).then(arr => setImages(imgs => [...imgs, ...arr]));
+      return;
+    }
+    setUploading(true);
+    Promise.all(files.map(f => {
+      const path = (project.id || 'demo') + '/' + genId() + '-' + f.name.replace(/[^\w.-]/g, '_');
+      return window.db.files.uploadFile('po-images', path, f)
+        .then(url => ({ url: url, name: f.name, size: f.size, mime: f.type }));
+    })).then(arr => {
+      setImages(imgs => [...imgs, ...arr]);
+      setUploading(false);
+    }).catch(err => {
+      alert('อัปโหลดรูปไม่สำเร็จ: ' + (err.message || err));
+      setUploading(false);
+    });
+  };
+
+  const removeImage = (idx) => setImages(imgs => imgs.filter((_, i) => i !== idx));
   const [vat, setVat] = useState(initial ? !!initial.vat : false);
   const [wht, setWht] = useState(initial ? initial.withholding || 0 : 0);
   const [items, setItems] = useState(() => {
@@ -179,7 +215,8 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
     paidAt: initial ? initial.paidAt : null,
     paymentSlip: initial ? initial.paymentSlip : null,
     rejectReason: initial ? initial.rejectReason : null,
-    notes: notes.trim()
+    notes: notes.trim(),
+    images: images
   });
 
   const saveDraft = () => onSubmit(buildPO(initial ? initial.status : 'draft'));
@@ -440,6 +477,50 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
           value={notes} onChange={e => setNotes(e.target.value)}/>
       </div>
 
+      {/* Image attachments */}
+      <div className="field mt-16">
+        <label>
+          แนบรูปภาพ <span className="dim" style={{fontWeight:400}}>(สูงสุด 10 รูป — ใบเสนอราคา, ใบเสร็จ, รูปงาน ฯลฯ)</span>
+          <span style={{marginLeft:'auto', float:'right'}} className="dim">{images.length}/10</span>
+        </label>
+        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(96px, 1fr))', gap:'8px', marginTop:'4px'}}>
+          {images.map((img, i) => (
+            <div key={i} style={{position:'relative', aspectRatio:'1/1', borderRadius:'var(--r-sm)', overflow:'hidden', background:'var(--bg-2)', border:'1px solid var(--border)'}}>
+              <img src={img.url} alt={img.name} onClick={() => setPreviewImg(img)}
+                style={{width:'100%', height:'100%', objectFit:'cover', cursor:'zoom-in'}}/>
+              <button type="button" onClick={() => removeImage(i)}
+                style={{position:'absolute', top:'4px', right:'4px', background:'rgba(0,0,0,.7)', border:'none', color:'#fff', width:'22px', height:'22px', borderRadius:'50%', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center'}}
+                title="ลบรูปนี้">
+                <Icon name="close" size={11}/>
+              </button>
+            </div>
+          ))}
+          {images.length < 10 ? (
+            <label style={{
+              aspectRatio:'1/1', borderRadius:'var(--r-sm)', border:'1.5px dashed var(--border-strong)',
+              display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+              cursor: uploading ? 'wait' : 'pointer', gap:'6px', color:'var(--text-3)',
+              background: uploading ? 'var(--bg-2)' : 'transparent'
+            }}>
+              <Icon name={uploading ? 'clock' : 'plus'} size={18}/>
+              <span style={{fontSize:'11px'}}>{uploading ? 'กำลังอัปโหลด...' : 'เพิ่มรูป'}</span>
+              <input type="file" accept="image/*" multiple disabled={uploading}
+                onChange={e => { handleImageSelect(e.target.files); e.target.value = ''; }}
+                style={{display:'none'}}/>
+            </label>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Lightbox preview */}
+      {previewImg ? (
+        <div onClick={() => setPreviewImg(null)}
+          style={{position:'fixed', inset:0, background:'rgba(0,0,0,.85)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:'24px', cursor:'zoom-out'}}>
+          <img src={previewImg.url} alt={previewImg.name}
+            style={{maxWidth:'100%', maxHeight:'100%', objectFit:'contain', borderRadius:'8px'}}/>
+        </div>
+      ) : null}
+
       {/* Total summary */}
       <div className="calc-box mt-16" style={{padding:'16px'}}>
         <div className="row" style={{justifyContent:'space-between', gap:0}}>
@@ -501,7 +582,9 @@ function PODetailModal({ project, po, onClose, onEdit, onAction, onDelete }) {
   const [showReturnUI, setShowReturnUI] = useState(false);
   const [docKind, setDocKind] = useState(null); // '50tawi' | 'receipt' | 'payment'
   const [showDocMenu, setShowDocMenu] = useState(false);
+  const [previewImg, setPreviewImg] = useState(null);
   const docMenuRef = useRef(null);
+  const poImages = Array.isArray(po.images) ? po.images : [];
 
   useEffect(() => {
     if (!showDocMenu) return;
@@ -561,8 +644,13 @@ function PODetailModal({ project, po, onClose, onEdit, onAction, onDelete }) {
   const showApprove = status === 'pending' && CURRENT_USER.canApprove;
   const showSubmit = status === 'draft' || status === 'rejected';
   const showPayment = status === 'approved';
-  const editable = status === 'draft' || status === 'rejected';
+  const editable = status === 'draft' || status === 'rejected' || status === 'pending';
   const deletable = status === 'draft' || status === 'rejected' || status === 'pending';
+  const isLaborOrSub = po.kind === 'labor' || po.kind === 'subcontract';
+  const vendorHistory = useMemo(() => {
+    if (!isLaborOrSub || !po.vendor) return [];
+    return getVendorHistory(project, po.kind, po.vendor, po.id);
+  }, [project, po.kind, po.vendor, po.id, isLaborOrSub]);
 
   return (
     <Modal open={true} onClose={onClose} wide
@@ -631,6 +719,55 @@ function PODetailModal({ project, po, onClose, onEdit, onAction, onDelete }) {
           </Alert>
         ) : null}
       </div>
+
+      {/* Vendor history (labor/subcontract) — shown at all statuses for approver context */}
+      {isLaborOrSub && vendorHistory.length > 0 ? (
+        <div className="vendor-history mb-16">
+          <div className="vendor-history-toggle" style={{cursor:'default'}}>
+            <Icon name="clock" size={14}/>
+            <span>ประวัติการเบิกของ <strong>{po.vendor}</strong> ในหมวด {KINDS[po.kind].short}</span>
+            <Badge>{vendorHistory.length} รายการ</Badge>
+            <span className="dim" style={{marginLeft:'auto', fontSize:'12px'}}>
+              สะสมจ่ายแล้ว <strong className="mono">{formatBaht(vendorHistory.filter(t => getStatus(t) === 'paid').reduce((s,t)=>s+t.amount,0))}</strong> บ.
+              {vendorHistory.some(t => t.advanceDeduct > 0) ? <> · เคยหักเบิกล่วงหน้า <strong className="mono">{formatBaht(vendorHistory.reduce((s,t)=>s+(t.advanceDeduct||0),0))}</strong> บ.</> : null}
+            </span>
+          </div>
+          <div className="vendor-history-body">
+            <div className="table-scroll">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th style={{width:'90px'}}>วันที่</th>
+                    <th style={{width:'120px'}}>เลขที่</th>
+                    <th>รายการ</th>
+                    <th className="num">หักผลงาน</th>
+                    <th className="num">หักเบิก</th>
+                    <th className="num">ยอดสุทธิ</th>
+                    <th style={{width:'90px'}}>สถานะ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vendorHistory.slice(0, 6).map(p => {
+                    const its = getPOItems(p);
+                    return (
+                      <tr key={p.id}>
+                        <td className="date">{formatDate(p.date)}</td>
+                        <td className="mono" style={{fontSize:'12px'}}>{p.code}</td>
+                        <td className="desc"><span className="muted">{its[0]?.description}{its.length > 1 ? ` +${its.length-1}` : ''}</span></td>
+                        <td className="num">{p.retentionAmount > 0 ? <span className="dim">−{formatBaht(p.retentionAmount)}</span> : '—'}</td>
+                        <td className="num">{p.advanceDeduct > 0 ? <span className="dim">−{formatBaht(p.advanceDeduct)}</span> : '—'}</td>
+                        <td className="num">{formatBaht(p.amount)}</td>
+                        <td><POStatusBadge status={getStatus(p)}/></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {vendorHistory.length > 6 ? <div className="dim" style={{textAlign:'center', padding:'8px', fontSize:'12px'}}>และอีก {vendorHistory.length - 6} รายการก่อนหน้า...</div> : null}
+          </div>
+        </div>
+      ) : null}
 
       {/* PO header */}
       <div className="po-summary-grid">
@@ -815,6 +952,28 @@ function PODetailModal({ project, po, onClose, onEdit, onAction, onDelete }) {
           <div style={{padding:'12px 14px', background:'var(--bg-2)', border:'1px solid var(--border)', borderRadius:'var(--r)', fontSize:'13px'}}>
             {po.notes}
           </div>
+        </div>
+      ) : null}
+
+      {/* Image attachments */}
+      {poImages.length > 0 ? (
+        <div className="mt-16">
+          <div className="uppercase muted mb-8">รูปภาพแนบ <Badge>{poImages.length}</Badge></div>
+          <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(110px, 1fr))', gap:'8px'}}>
+            {poImages.map((img, i) => (
+              <div key={i} onClick={() => setPreviewImg(img)}
+                style={{aspectRatio:'1/1', borderRadius:'var(--r-sm)', overflow:'hidden', background:'var(--bg-2)', border:'1px solid var(--border)', cursor:'zoom-in'}}>
+                <img src={img.url} alt={img.name || ''} style={{width:'100%', height:'100%', objectFit:'cover'}}/>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {previewImg ? (
+        <div onClick={() => setPreviewImg(null)}
+          style={{position:'fixed', inset:0, background:'rgba(0,0,0,.85)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:'24px', cursor:'zoom-out'}}>
+          <img src={previewImg.url} alt={previewImg.name || ''} style={{maxWidth:'100%', maxHeight:'100%', objectFit:'contain', borderRadius:'8px'}}/>
         </div>
       ) : null}
 
