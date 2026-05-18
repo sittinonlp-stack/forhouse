@@ -169,7 +169,7 @@ function ProjectView({ project, onBack, onUpdate, onOpenBalance, currentRole }) 
   const agg = useMemo(() => aggregateProject(project), [project]);
 
   const addTx = useCallback((tx) => {
-    const np = { ...project, transactions: [{ ...tx, id: tx.id || uid('tx') }, ...project.transactions] };
+    const np = { ...project, transactions: [{ ...tx, id: tx.id || genId() }, ...project.transactions] };
     onUpdate(np);
   }, [project, onUpdate]);
 
@@ -1247,7 +1247,7 @@ function TransactionModal({ mode, kind, project, initial, onClose, onSubmit }) {
   const submit = () => {
     if (!canSubmit) return;
     const tx = {
-      id: initial ? initial.id : uid('tx'),
+      id: initial ? initial.id : genId(),
       kind: k,
       date,
       category: cat,

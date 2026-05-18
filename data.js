@@ -38,6 +38,15 @@
     return (prefix || 'id') + '_' + Math.random().toString(36).slice(2, 9);
   }
 
+  // UUID v4 — used for all IDs that are stored in Supabase (PO, income, items)
+  function genId() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+  }
+
   // ---------- Expense category meta ----------
   // Each "kind" has its own subcategory list (editable by user in app).
   var KINDS = {
@@ -70,4 +79,5 @@
   window.formatDate = formatDate;
   window.formatDateLong = formatDateLong;
   window.uid = uid;
+  window.genId = genId;
 })();

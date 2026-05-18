@@ -83,7 +83,7 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
   const [wht, setWht] = useState(initial ? initial.withholding || 0 : 0);
   const [items, setItems] = useState(() => {
     if (initial) return getPOItems(initial).map(it => ({ ...it }));
-    return [{ id: uid('it'), category: (project.categories[defaultKind || 'material'] || [])[0] || '', description: '', qty: 1, unit: 'ชิ้น', unitPrice: 0, amount: 0 }];
+    return [{ id: genId(), category: (project.categories[defaultKind || 'material'] || [])[0] || '', description: '', qty: 1, unit: 'ชิ้น', unitPrice: 0, amount: 0 }];
   });
 
   // Material/Machine: เงินประกันสินค้า/เครื่องจักร
@@ -125,7 +125,7 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
 
   const addItem = () => {
     const list = project.categories[kind] || [];
-    setItems(its => [...its, { id: uid('it'), category: list[0] || '', description: '', qty: 1, unit: 'ชิ้น', unitPrice: 0, amount: 0 }]);
+    setItems(its => [...its, { id: genId(), category: list[0] || '', description: '', qty: 1, unit: 'ชิ้น', unitPrice: 0, amount: 0 }]);
   };
   const removeItem = (id) => setItems(its => its.length > 1 ? its.filter(it => it.id !== id) : its);
 
@@ -140,7 +140,7 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
   const valid = items.length > 0 && items.every(it => it.category && it.description.trim() && it.qty > 0 && it.unitPrice > 0) && vendor.trim();
 
   const buildPO = (status) => ({
-    id: initial ? initial.id : uid('po'),
+    id: initial ? initial.id : genId(),
     kind,
     code,
     date,
