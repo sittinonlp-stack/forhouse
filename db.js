@@ -643,6 +643,22 @@
   }
 
   // ─────────────────────────────────────────────
+  // LIGHTWEIGHT — fetch transactions only (for polling)
+  // ─────────────────────────────────────────────
+  function getProjectTransactions(projectId) {
+    return Promise.all([
+      client.from('income_records').select('*').eq('project_id', projectId).order('date', { ascending: false }),
+      client.from('purchase_orders').select('*, po_items(*)').eq('project_id', projectId).order('date', { ascending: false })
+    ]).then(function (results) {
+      if (results[0].error) throw results[0].error;
+      if (results[1].error) throw results[1].error;
+      var incomes = (results[0].data || []).map(mapIncomeRow);
+      var pos     = (results[1].data || []).map(mapPORow);
+      return incomes.concat(pos);
+    });
+  }
+
+  // ─────────────────────────────────────────────
   // REALTIME — live project sync across clients
   // ─────────────────────────────────────────────
 
@@ -698,9 +714,7 @@
         onIncome(ev, row.id, mapIncomeRow(row));
       })
       .subscribe(function(status) {
-        if (status === 'CHANNEL_ERROR') {
-          console.warn('[RT] channel error for project', projectId);
-        }
+        console.log('[RT] channel status for', projectId, '=', status);
       });
 
     return channel;
@@ -745,7 +759,8 @@
       syncBudgets:         syncBudgets,
       syncCategories:      syncCategories,
       subscribeToProject:  subscribeToProject,
-      unsubscribeProject:  unsubscribeProject
+      unsubscribeProject:  unsubscribeProject,
+      getProjectTransactions: getProjectTransactions
     },
     files:   { uploadFile: uploadFile },
     members: {
