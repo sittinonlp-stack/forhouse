@@ -20,7 +20,14 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
       return { project: p, agg };
     });
     const margin = totals.income > 0 ? (totals.profit / totals.income) * 100 : 0;
-    return { totals, margin, list };
+    // Total pending approvals across all projects
+    const totalPending = list.reduce((s, { project, agg }) => {
+      if (project._fullLoaded) {
+        return s + EXPENSE_KINDS.reduce((ks, k) => ks + ((agg.statusCountByKind[k] && agg.statusCountByKind[k].pending) || 0), 0);
+      }
+      return s + (project.pendingPOCount || 0);
+    }, 0);
+    return { totals, margin, list, totalPending };
   }, [projects]);
 
   // Combined monthly trend across all projects
@@ -48,6 +55,20 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
           </button>
         </div>
       </div>
+
+      {all.totalPending > 0 ? (
+        <div className="card tight mb-16" style={{
+          display:'flex', alignItems:'center', gap:'12px',
+          padding:'10px 16px',
+          background:'rgba(251,191,36,.07)',
+          borderColor:'rgba(251,191,36,.3)'
+        }}>
+          <Icon name="clock" size={16} style={{color:'var(--warn)', flexShrink:0}}/>
+          <span style={{fontSize:'13px'}}>
+            มีใบสั่งซื้อ <strong style={{color:'var(--warn)'}}>{all.totalPending} รายการ</strong> รออนุมัติอยู่ในโครงการต่างๆ
+          </span>
+        </div>
+      ) : null}
 
       <div className="stat-grid">
         <Stat tone="income" icon="income" label="รายรับรวมทุกโครงการ"
@@ -98,6 +119,10 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
           }
           const status = agg.profit < 0 ? 'danger' : overBudget ? 'warn' : 'brand';
           const statusText = agg.profit < 0 ? 'ขาดทุน' : overBudget ? 'รายจ่ายเกินงบ' : 'กำไรปกติ';
+          // pending approval count — use live transactions when fully loaded, fallback to DB snapshot
+          const pendingCount = project._fullLoaded
+            ? EXPENSE_KINDS.reduce((s, k) => s + ((agg.statusCountByKind[k] && agg.statusCountByKind[k].pending) || 0), 0)
+            : (project.pendingPOCount || 0);
           return (
             <button key={project.id} className="project-card shimmer" onClick={() => onOpenProject(project.id)}>
               <div className="head">
@@ -110,7 +135,12 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
                     <span>{project.location}</span>
                   </div>
                 </div>
-                <Badge tone={status} dot>{statusText}</Badge>
+                <div style={{display:'flex', gap:'6px', alignItems:'center', flexWrap:'wrap', justifyContent:'flex-end'}}>
+                  {pendingCount > 0 ? (
+                    <Badge tone="warn" dot>{pendingCount} รออนุมัติ</Badge>
+                  ) : null}
+                  <Badge tone={status} dot>{statusText}</Badge>
+                </div>
               </div>
 
               <div className="stats">
@@ -194,9 +224,13 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
   // PO save: insert if new, update if existing
   const savePO = useCallback((po) => {
     const exists = project.transactions.some(t => t.id === po.id);
-    const np = exists
-      ? { ...project, transactions: project.transactions.map(t => t.id === po.id ? po : t) }
-      : { ...project, transactions: [po, ...project.transactions] };
+    const newTxs = exists
+      ? project.transactions.map(t => t.id === po.id ? po : t)
+      : [po, ...project.transactions];
+    // Keep pendingPOCount in sync optimistically
+    const pendingDelta = newTxs.filter(t => t.kind !== 'income' && (t.status || 'draft') === 'pending').length
+      - (project.transactions || []).filter(t => t.kind !== 'income' && (t.status || 'draft') === 'pending').length;
+    const np = { ...project, transactions: newTxs, pendingPOCount: Math.max(0, (project.pendingPOCount || 0) + pendingDelta) };
     onUpdate(np);
     setPOEditor(null);
     // refresh detail if showing same

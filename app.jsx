@@ -188,14 +188,15 @@ function App() {
 
     // Listen for auth state changes
     var sub = window.db.auth.onAuthChange(function(event, session) {
-      if (session && session.user) {
-        _loadProfile(session.user);
-      } else {
+      if (!session || !session.user) {
         setUser(null); setProfile(null);
         setProjects([]);
         setLiveMode(false);
         setShowLogin(true);
         window.CURRENT_USER = null;
+      } else if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        // Only reload everything on real login — not TOKEN_REFRESHED / USER_UPDATED
+        _loadProfile(session.user);
       }
     });
     return function() {

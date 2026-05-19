@@ -276,24 +276,33 @@
       .then(function (res) {
         if (res.error) throw res.error;
         projects = res.data || [];
-        if (!projects.length) return [null, null];
+        if (!projects.length) return [null, null, null];
         ids = projects.map(function (p) { return p.id; });
         return Promise.all([
           client.from('project_budgets').select('*').in('project_id', ids),
-          client.from('categories').select('*').in('project_id', ids).order('sort_order')
+          client.from('categories').select('*').in('project_id', ids).order('sort_order'),
+          client.from('purchase_orders').select('project_id, status').in('project_id', ids).eq('status', 'pending')
         ]);
       })
       .then(function (results) {
         if (!results) return [];
         var budgetsAll = (results[0] && results[0].data) || [];
         var catsAll    = (results[1] && results[1].data) || [];
+        var pendingPOs = (results[2] && results[2].data) || [];
+        // count pending POs per project
+        var pendingMap = {};
+        pendingPOs.forEach(function (r) {
+          pendingMap[r.project_id] = (pendingMap[r.project_id] || 0) + 1;
+        });
         return projects.map(function (p) {
-          return mapProjectRow(
+          var proj = mapProjectRow(
             p,
             budgetsAll.filter(function (b) { return b.project_id === p.id; }),
             catsAll.filter(function (c) { return c.project_id === p.id; }),
             [], []
           );
+          proj.pendingPOCount = pendingMap[p.id] || 0;
+          return proj;
         });
       });
   }
