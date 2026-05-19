@@ -78,17 +78,19 @@
 
   function mapIncomeRow(row) {
     return {
-      id:          row.id,
-      kind:        'income',
-      date:        row.date,
-      category:    row.category,
-      description: row.description || '',
-      amount:      Number(row.amount || 0),
-      vat:         !!row.vat,
-      vatAmount:   Number(row.vat_amount || 0),
-      vendor:      row.vendor || '',
-      attachment:  row.attachment_url || null,
-      _dbSource:   'income'
+      id:            row.id,
+      kind:          'income',
+      date:          row.date,
+      category:      row.category,
+      description:   row.description || '',
+      amount:        Number(row.amount || 0),
+      vat:           !!row.vat,
+      vatIncluded:   !!row.vat_included,
+      vatAmount:     Number(row.vat_amount || 0),
+      vendor:        row.vendor || '',
+      attachment:    row.attachment_url || null,
+      taxInvoiceUrl: row.tax_invoice_url || '',
+      _dbSource:     'income'
     };
   }
 
@@ -139,6 +141,8 @@
       deposit:         row.deposit
                          ? (typeof row.deposit === 'string' ? JSON.parse(row.deposit) : row.deposit)
                          : null,
+      vatIncluded:     !!row.vat_included,
+      taxInvoiceUrl:   row.tax_invoice_url || '',
       _dbSource:       'po'
     };
   }
@@ -149,17 +153,19 @@
 
   function incomeToRow(tx, projectId, userId) {
     return {
-      id:             tx.id,
-      project_id:     projectId,
-      date:           tx.date,
-      category:       tx.category,
-      description:    tx.description || '',
-      amount:         tx.amount || 0,
-      vat:            !!tx.vat,
-      vat_amount:     tx.vatAmount || 0,
-      vendor:         tx.vendor || '',
-      attachment_url: tx.attachment || null,
-      created_by:     userId || null
+      id:              tx.id,
+      project_id:      projectId,
+      date:            tx.date,
+      category:        tx.category,
+      description:     tx.description || '',
+      amount:          tx.amount || 0,
+      vat:             !!tx.vat,
+      vat_included:    !!tx.vatIncluded,
+      vat_amount:      tx.vatAmount || 0,
+      vendor:          tx.vendor || '',
+      attachment_url:  tx.attachment || null,
+      tax_invoice_url: tx.taxInvoiceUrl || null,
+      created_by:      userId || null
     };
   }
 
@@ -192,6 +198,8 @@
       payment_slip_url:po.paymentSlip || null,
       images:          Array.isArray(po.images) ? po.images : [],
       deposit:         po.deposit && po.deposit.amount > 0 ? po.deposit : null,
+      vat_included:    !!po.vatIncluded,
+      tax_invoice_url: po.taxInvoiceUrl || null,
       updated_at:      new Date().toISOString()
     };
   }
@@ -281,7 +289,7 @@
         return Promise.all([
           client.from('project_budgets').select('*').in('project_id', ids),
           client.from('categories').select('*').in('project_id', ids).order('sort_order'),
-          client.from('purchase_orders').select('project_id, status').in('project_id', ids).eq('status', 'pending')
+          client.from('purchase_orders').select('project_id, status, kind').in('project_id', ids).eq('status', 'pending')
         ]);
       })
       .then(function (results) {
@@ -289,10 +297,13 @@
         var budgetsAll = (results[0] && results[0].data) || [];
         var catsAll    = (results[1] && results[1].data) || [];
         var pendingPOs = (results[2] && results[2].data) || [];
-        // count pending POs per project
+        // count pending POs per project + per kind
         var pendingMap = {};
+        var pendingByKindMap = {};
         pendingPOs.forEach(function (r) {
           pendingMap[r.project_id] = (pendingMap[r.project_id] || 0) + 1;
+          if (!pendingByKindMap[r.project_id]) pendingByKindMap[r.project_id] = {};
+          pendingByKindMap[r.project_id][r.kind] = (pendingByKindMap[r.project_id][r.kind] || 0) + 1;
         });
         return projects.map(function (p) {
           var proj = mapProjectRow(
@@ -302,6 +313,7 @@
             [], []
           );
           proj.pendingPOCount = pendingMap[p.id] || 0;
+          proj.pendingPOByKind = pendingByKindMap[p.id] || {};
           return proj;
         });
       });

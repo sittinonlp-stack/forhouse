@@ -7,7 +7,8 @@ const SCR = {}; // will be exported to window at the end
 /* ============================================================
    DASHBOARD — overview of all projects
    ============================================================ */
-function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, onOpenMonthlyPlan }) {
+function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, onOpenMonthlyPlan, currentRole }) {
+  const canViewBalance = (ROLES[currentRole] || ROLES.staff).canViewBalance;
   const all = useMemo(() => {
     const totals = { income: 0, expense: 0, profit: 0, contract: 0, budget: 0 };
     const list = projects.map(p => {
@@ -20,14 +21,21 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
       return { project: p, agg };
     });
     const margin = totals.income > 0 ? (totals.profit / totals.income) * 100 : 0;
-    // Total pending approvals across all projects
-    const totalPending = list.reduce((s, { project, agg }) => {
+    // Total pending approvals across all projects + breakdown by kind
+    const pendingByKind = { material: 0, labor: 0, subcontract: 0, machine: 0, other: 0 };
+    list.forEach(({ project, agg }) => {
       if (project._fullLoaded) {
-        return s + EXPENSE_KINDS.reduce((ks, k) => ks + ((agg.statusCountByKind[k] && agg.statusCountByKind[k].pending) || 0), 0);
+        EXPENSE_KINDS.forEach(k => {
+          pendingByKind[k] += ((agg.statusCountByKind[k] && agg.statusCountByKind[k].pending) || 0);
+        });
+      } else if (project.pendingPOByKind) {
+        Object.keys(project.pendingPOByKind).forEach(k => {
+          pendingByKind[k] = (pendingByKind[k] || 0) + (project.pendingPOByKind[k] || 0);
+        });
       }
-      return s + (project.pendingPOCount || 0);
-    }, 0);
-    return { totals, margin, list, totalPending };
+    });
+    const totalPending = Object.values(pendingByKind).reduce((s, n) => s + n, 0);
+    return { totals, margin, list, totalPending, pendingByKind };
   }, [projects]);
 
   // Combined monthly trend across all projects
@@ -47,9 +55,11 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
           <button className="btn" onClick={onOpenMonthlyPlan}>
             <Icon name="document" size={16}/> แผนรายรับรายเดือน
           </button>
-          <button className="btn" onClick={onOpenAllBalance}>
-            <Icon name="balance" size={16}/> งบดุลรวมรายวัน/รายเดือน
-          </button>
+          {canViewBalance ? (
+            <button className="btn" onClick={onOpenAllBalance}>
+              <Icon name="balance" size={16}/> งบดุลรวมรายวัน/รายเดือน
+            </button>
+          ) : null}
           <button className="btn primary" onClick={onNewProject}>
             <Icon name="plus" size={16}/> เพิ่มโครงการใหม่
           </button>
@@ -58,14 +68,18 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
 
       {all.totalPending > 0 ? (
         <div className="card tight mb-16" style={{
-          display:'flex', alignItems:'center', gap:'12px',
+          display:'flex', alignItems:'center', gap:'12px', flexWrap:'wrap',
           padding:'10px 16px',
           background:'rgba(251,191,36,.07)',
           borderColor:'rgba(251,191,36,.3)'
         }}>
           <Icon name="clock" size={16} style={{color:'var(--warn)', flexShrink:0}}/>
           <span style={{fontSize:'13px'}}>
-            มีใบสั่งซื้อ <strong style={{color:'var(--warn)'}}>{all.totalPending} รายการ</strong> รออนุมัติอยู่ในโครงการต่างๆ
+            <strong style={{color:'var(--warn)'}}>{all.totalPending} รายการ</strong> รออนุมัติ —{' '}
+            {Object.keys(all.pendingByKind)
+              .filter(k => all.pendingByKind[k] > 0)
+              .map(k => `${KINDS[k].label} ${all.pendingByKind[k]}`)
+              .join(' · ')}
           </span>
         </div>
       ) : null}
@@ -119,10 +133,22 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
           }
           const status = agg.profit < 0 ? 'danger' : overBudget ? 'warn' : 'brand';
           const statusText = agg.profit < 0 ? 'ขาดทุน' : overBudget ? 'รายจ่ายเกินงบ' : 'กำไรปกติ';
-          // pending approval count — use live transactions when fully loaded, fallback to DB snapshot
-          const pendingCount = project._fullLoaded
-            ? EXPENSE_KINDS.reduce((s, k) => s + ((agg.statusCountByKind[k] && agg.statusCountByKind[k].pending) || 0), 0)
-            : (project.pendingPOCount || 0);
+          // pending approval count + per-kind breakdown
+          let pendingCount = 0;
+          const pendingKinds = [];
+          if (project._fullLoaded) {
+            EXPENSE_KINDS.forEach(k => {
+              const c = (agg.statusCountByKind[k] && agg.statusCountByKind[k].pending) || 0;
+              if (c > 0) { pendingCount += c; pendingKinds.push(`${KINDS[k].short} ${c}`); }
+            });
+          } else {
+            pendingCount = project.pendingPOCount || 0;
+            const byKind = project.pendingPOByKind || {};
+            Object.keys(byKind).forEach(k => {
+              if (byKind[k] > 0) pendingKinds.push(`${(KINDS[k] && KINDS[k].short) || k} ${byKind[k]}`);
+            });
+          }
+          const pendingLabel = pendingKinds.join(' · ');
           return (
             <button key={project.id} className="project-card shimmer" onClick={() => onOpenProject(project.id)}>
               <div className="head">
@@ -137,7 +163,9 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
                 </div>
                 <div style={{display:'flex', gap:'6px', alignItems:'center', flexWrap:'wrap', justifyContent:'flex-end'}}>
                   {pendingCount > 0 ? (
-                    <Badge tone="warn" dot>{pendingCount} รออนุมัติ</Badge>
+                    <span title={pendingLabel}>
+                      <Badge tone="warn" dot>{pendingLabel || `${pendingCount} รออนุมัติ`}</Badge>
+                    </span>
                   ) : null}
                   <Badge tone={status} dot>{statusText}</Badge>
                 </div>
@@ -237,8 +265,14 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
     setPODetail(d => d && d.id === po.id ? po : d);
     if (window.notify) {
       const kindShort = (KINDS[po.kind] && KINDS[po.kind].short) || '';
+      const isPOKind = po.kind === 'labor' || po.kind === 'subcontract';
       if (!exists) {
-        window.notify(`สร้างใบสั่งซื้อ ${po.code || ''} (${kindShort}) สำเร็จ`, 'success');
+        window.notify(
+          isPOKind
+            ? `สร้างใบสั่งซื้อ ${po.code || ''} (${kindShort}) สำเร็จ`
+            : `บันทึกรายจ่าย${kindShort ? ' ' + kindShort : ''} ${formatBaht(po.amount)} บ. แล้ว`,
+          'success'
+        );
       } else if (po.status === 'paid') {
         window.notify(`บันทึกการชำระเงิน ${po.code || ''} เรียบร้อย`, 'success');
       } else if (po.status === 'approved') {
@@ -305,9 +339,11 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
           </div>
         </div>
         <div className="page-actions">
-          <button className="btn" onClick={onOpenBalance}>
-            <Icon name="balance" size={16}/> งบดุลโครงการ
-          </button>
+          {role.canViewBalance ? (
+            <button className="btn" onClick={onOpenBalance}>
+              <Icon name="balance" size={16}/> งบดุลโครงการ
+            </button>
+          ) : null}
           <button className="btn primary" onClick={() => {
             if (tab === 'income') setAddingIncome(true);
             else if (tab === 'overview' || tab === 'categories') setPOEditor({ kind: 'material' });
@@ -1550,10 +1586,12 @@ function TransactionModal({ mode, kind, project, initial, onClose, onSubmit }) {
   const [amount, setAmount] = useState(initial ? String(initial.amount) : '');
   const [vendor, setVendor] = useState(initial ? initial.vendor || '' : '');
   const [vat, setVat] = useState(initial ? !!initial.vat : false);
+  const [vatIncluded, setVatIncluded] = useState(initial ? !!initial.vatIncluded : false);
   const [wht, setWht] = useState(initial ? initial.withholding || 0 : 0);
   const [deductionPct, setDeductionPct] = useState(initial && initial.deductionPct ? initial.deductionPct : 0);
   const [deductionNote, setDeductionNote] = useState(initial && initial.deductionNote ? initial.deductionNote : '');
   const [attach, setAttach] = useState(initial ? initial.attachment : null);
+  const [taxInvoiceUrl, setTaxInvoiceUrl] = useState(initial ? (initial.taxInvoiceUrl || '') : '');
 
   // update category list when kind changes
   useEffect(() => {
@@ -1562,11 +1600,24 @@ function TransactionModal({ mode, kind, project, initial, onClose, onSubmit }) {
   }, [k]);
 
   const amt = parseFloat(amount.replace(/,/g, '')) || 0;
-  const vatAmt = vat ? amt * 0.07 : 0;
-  const whtAmt = wht > 0 ? amt * (wht / 100) : 0;
+  // VAT: vatIncluded → amt รวม VAT แล้ว, แยก VAT ออก / !vatIncluded → amt ไม่รวม VAT, คำนวณเพิ่ม
+  let base, vatAmt;
+  if (vat) {
+    if (vatIncluded) {
+      vatAmt = amt * 7 / 107;
+      base   = amt - vatAmt;
+    } else {
+      base   = amt;
+      vatAmt = amt * 0.07;
+    }
+  } else {
+    base   = amt;
+    vatAmt = 0;
+  }
+  const whtAmt = wht > 0 ? base * (wht / 100) : 0;
   const dedPct = parseFloat(String(deductionPct).replace(/,/g,'')) || 0;
   const dedAmt = k === 'income' && dedPct > 0 ? amt * (dedPct / 100) : 0;
-  const netPay = k === 'income' ? amt - dedAmt : amt + vatAmt - whtAmt;
+  const netPay = k === 'income' ? amt - dedAmt : (vatIncluded ? amt - whtAmt : amt + vatAmt - whtAmt);
 
   const isExpense = k !== 'income';
   const isIncome = k === 'income';
@@ -1583,10 +1634,13 @@ function TransactionModal({ mode, kind, project, initial, onClose, onSubmit }) {
       amount: amt,
       vendor: vendor.trim(),
       vat,
+      vatIncluded,
+      vatAmount: vatAmt,
       withholding: wht,
       deductionPct: isIncome ? dedPct : 0,
       deductionNote: isIncome ? deductionNote.trim() : '',
-      attachment: attach
+      attachment: attach,
+      taxInvoiceUrl: taxInvoiceUrl.trim()
     };
     onSubmit(tx);
   };
@@ -1657,6 +1711,19 @@ function TransactionModal({ mode, kind, project, initial, onClose, onSubmit }) {
                 <input type="checkbox" checked={vat} onChange={e => setVat(e.target.checked)}/>
                 ใบกำกับภาษี (VAT 7%)
               </label>
+              {vat ? (
+                <>
+                  <span className="dim">|</span>
+                  <label style={{gap:'6px'}}>
+                    <select className="input-base" value={vatIncluded ? 'inc' : 'exc'}
+                      onChange={e => setVatIncluded(e.target.value === 'inc')}
+                      style={{padding:'4px 8px', width:'auto'}}>
+                      <option value="exc">ยอดยังไม่รวม VAT</option>
+                      <option value="inc">ยอดรวม VAT แล้ว</option>
+                    </select>
+                  </label>
+                </>
+              ) : null}
               <span className="dim">|</span>
               <label style={{gap:'8px'}}>
                 หัก ณ ที่จ่าย:
@@ -1694,6 +1761,13 @@ function TransactionModal({ mode, kind, project, initial, onClose, onSubmit }) {
         <div className="field full">
           <label>แนบไฟล์ใบเสร็จ / เอกสาร</label>
           <FileField value={attach} onChange={setAttach}/>
+        </div>
+
+        <div className="field full">
+          <label>ลิงก์ใบกำกับภาษี (ไฟล์ภายนอก — ถ้ามี)</label>
+          <input className="input-base" type="url" placeholder="https://drive.google.com/... หรือ URL อื่นๆ"
+            value={taxInvoiceUrl} onChange={e => setTaxInvoiceUrl(e.target.value)}/>
+          <span className="hint">วาง URL ของไฟล์ใบกำกับภาษีจาก Google Drive, OneDrive หรือระบบอื่นๆ</span>
         </div>
 
         {amt > 0 ? (

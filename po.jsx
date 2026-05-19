@@ -116,7 +116,9 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
 
   const removeImage = (idx) => setImages(imgs => imgs.filter((_, i) => i !== idx));
   const [vat, setVat] = useState(initial ? !!initial.vat : false);
+  const [vatIncluded, setVatIncluded] = useState(initial ? !!initial.vatIncluded : false);
   const [wht, setWht] = useState(initial ? initial.withholding || 0 : 0);
+  const [taxInvoiceUrl, setTaxInvoiceUrl] = useState(initial ? (initial.taxInvoiceUrl || '') : '');
   const [items, setItems] = useState(() => {
     if (initial) return getPOItems(initial).map(it => ({ ...it }));
     return [{ id: genId(), category: (project.categories[defaultKind || 'material'] || [])[0] || '', description: '', qty: 1, unit: 'ชิ้น', unitPrice: 0, amount: 0 }];
@@ -131,6 +133,8 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
 
   const isMaterialOrMachine = kind === 'material' || kind === 'machine';
   const isLaborOrSub = kind === 'labor' || kind === 'subcontract';
+  // ใหม่: ใช้ workflow PO + อนุมัติเฉพาะแรงงาน/รับเหมาช่วง ส่วนอื่นบันทึกเป็นรายจ่ายตรง
+  const needsApproval = isLaborOrSub;
 
   // when kind changes, validate item categories + reset kind-specific fields
   useEffect(() => {
@@ -165,8 +169,22 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
   };
   const removeItem = (id) => setItems(its => its.length > 1 ? its.filter(it => it.id !== id) : its);
 
-  const subtotal = items.reduce((s, it) => s + (it.amount || 0), 0);
-  const vatAmt = vat ? subtotal * 0.07 : 0;
+  const itemsTotal = items.reduce((s, it) => s + (it.amount || 0), 0);
+  // VAT calculation: vatIncluded → ราคารวม VAT แล้ว, แยก VAT ออก  /  !vatIncluded → ราคาไม่รวม VAT, คำนวณ VAT เพิ่ม
+  let subtotal, vatAmt;
+  if (vat) {
+    if (vatIncluded) {
+      vatAmt   = itemsTotal * 7 / 107;
+      subtotal = itemsTotal - vatAmt;
+    } else {
+      subtotal = itemsTotal;
+      vatAmt   = itemsTotal * 0.07;
+    }
+  } else {
+    subtotal = itemsTotal;
+    vatAmt   = 0;
+  }
+  // หัก ณ ที่จ่ายคิดจาก subtotal (ฐานก่อน VAT)
   const whtAmt = wht > 0 ? subtotal * (wht / 100) : 0;
   const retAmt = isLaborOrSub ? (parseFloat(String(retentionAmount).replace(/,/g,'')) || 0) : 0;
   const advAmt = isLaborOrSub ? (parseFloat(String(advanceDeduct).replace(/,/g,'')) || 0) : 0;
@@ -194,8 +212,9 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
     })),
     amount: grandTotal,
     subtotal,
-    vat, vatAmount: vatAmt,
+    vat, vatIncluded, vatAmount: vatAmt,
     withholding: wht, whtAmount: whtAmt,
+    taxInvoiceUrl: taxInvoiceUrl.trim(),
     // labor/subcontract
     retentionAmount: retAmt,
     advanceDeduct: advAmt,
@@ -221,21 +240,34 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
 
   const saveDraft = () => onSubmit(buildPO(initial ? initial.status : 'draft'));
   const submitForApproval = () => onSubmit(buildPO('pending'));
+  const saveAsPaid = () => onSubmit(buildPO('paid'));
+
+  const titlePrefix = needsApproval
+    ? (isEdit ? 'แก้ไขใบสั่งซื้อ' : 'สร้างใบสั่งซื้อใหม่')
+    : (isEdit ? 'แก้ไขรายจ่าย' : 'บันทึกรายจ่ายใหม่');
 
   return (
     <Modal open={true} onClose={onClose}
-      title={(isEdit ? 'แก้ไขใบสั่งซื้อ' : 'สร้างใบสั่งซื้อใหม่') + ' · ' + KINDS[kind].label}
+      title={titlePrefix + ' · ' + KINDS[kind].label}
       wide
       footer={<>
         <button className="btn ghost" onClick={onClose}>ยกเลิก</button>
-        {!isEdit || initial.status === 'draft' || initial.status === 'rejected' ? (
-          <button className="btn" disabled={!valid} onClick={saveDraft}>
-            <Icon name="document" size={14}/> บันทึกเป็นร่าง
+        {needsApproval ? (
+          <>
+            {!isEdit || initial.status === 'draft' || initial.status === 'rejected' ? (
+              <button className="btn" disabled={!valid} onClick={saveDraft}>
+                <Icon name="document" size={14}/> บันทึกเป็นร่าง
+              </button>
+            ) : null}
+            <button className="btn primary" disabled={!valid} onClick={submitForApproval}>
+              <Icon name="send" size={14}/> {isEdit && initial.status !== 'draft' && initial.status !== 'rejected' ? 'บันทึก' : 'ส่งขออนุมัติ'}
+            </button>
+          </>
+        ) : (
+          <button className="btn primary" disabled={!valid} onClick={saveAsPaid}>
+            <Icon name="check" size={14}/> {isEdit ? 'บันทึกการแก้ไข' : 'บันทึกรายจ่าย'}
           </button>
-        ) : null}
-        <button className="btn primary" disabled={!valid} onClick={submitForApproval}>
-          <Icon name="send" size={14}/> {isEdit && initial.status !== 'draft' && initial.status !== 'rejected' ? 'บันทึก' : 'ส่งขออนุมัติ'}
-        </button>
+        )}
       </>}>
 
       {/* PO header */}
@@ -391,6 +423,19 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
             <input type="checkbox" checked={vat} onChange={e => setVat(e.target.checked)}/>
             ใบกำกับภาษี (VAT 7%)
           </label>
+          {vat ? (
+            <>
+              <span className="dim">|</span>
+              <label style={{gap:'6px'}}>
+                <select className="input-base" value={vatIncluded ? 'inc' : 'exc'}
+                  onChange={e => setVatIncluded(e.target.value === 'inc')}
+                  style={{padding:'4px 8px', width:'auto'}}>
+                  <option value="exc">ยอดยังไม่รวม VAT</option>
+                  <option value="inc">ยอดรวม VAT แล้ว</option>
+                </select>
+              </label>
+            </>
+          ) : null}
           <span className="dim">|</span>
           <label style={{gap:'8px'}}>
             หัก ณ ที่จ่าย:
@@ -402,6 +447,14 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
             </select>
           </label>
         </div>
+      </div>
+
+      {/* Tax invoice external link */}
+      <div className="field mt-12">
+        <label>ลิงก์ใบกำกับภาษี (ไฟล์ภายนอก — ถ้ามี)</label>
+        <input className="input-base" type="url" placeholder="https://drive.google.com/... หรือ URL อื่นๆ"
+          value={taxInvoiceUrl} onChange={e => setTaxInvoiceUrl(e.target.value)}/>
+        <span className="hint">วาง URL ของไฟล์ใบกำกับภาษีจาก Google Drive, OneDrive หรือระบบอื่นๆ</span>
       </div>
 
       {/* Material/Machine: เงินประกัน */}
@@ -1038,6 +1091,7 @@ function PurchaseOrdersTab({ kind, project, agg, onAdd, onOpen }) {
   const [catFilter, setCatFilter] = useState('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const needsApproval = kind === 'labor' || kind === 'subcontract';
 
   const allKindPOs = useMemo(() =>
     project.transactions.filter(t => t.kind === kind),
@@ -1125,29 +1179,31 @@ function PurchaseOrdersTab({ kind, project, agg, onAdd, onOpen }) {
             ) : null}
           </div>
           <button className="btn primary" onClick={onAdd}>
-            <Icon name="plus" size={14}/> สร้างใบสั่งซื้อใหม่
+            <Icon name="plus" size={14}/> {needsApproval ? 'สร้างใบสั่งซื้อใหม่' : 'บันทึกรายจ่ายใหม่'}
           </button>
         </div>
       </div>
 
-      {/* Status filter chips */}
-      <div className="row mb-16" style={{gap:'6px', flexWrap:'wrap'}}>
-        {[
-          ['all', `ทั้งหมด (${allKindPOs.length})`],
-          ['draft', `ร่าง (${counts.draft})`],
-          ['pending', `รออนุมัติ (${counts.pending})`],
-          ['approved', `อนุมัติแล้ว (${counts.approved})`],
-          ['paid', `จ่ายแล้ว (${counts.paid})`],
-          ['rejected', `ถูกปฏิเสธ (${counts.rejected})`]
-        ].map(([key, label]) => (
-          <button key={key}
-            className={`chip ${statusFilter === key ? 'on' : ''}`}
-            onClick={() => setStatusFilter(key)}>
-            {key !== 'all' ? <span className="chip-dot" style={{background: PO_STATUS[key]?.color || 'var(--text-3)'}}></span> : null}
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* Status filter chips — โชว์เฉพาะหมวดที่ต้องอนุมัติ */}
+      {needsApproval ? (
+        <div className="row mb-16" style={{gap:'6px', flexWrap:'wrap'}}>
+          {[
+            ['all', `ทั้งหมด (${allKindPOs.length})`],
+            ['draft', `ร่าง (${counts.draft})`],
+            ['pending', `รออนุมัติ (${counts.pending})`],
+            ['approved', `อนุมัติแล้ว (${counts.approved})`],
+            ['paid', `จ่ายแล้ว (${counts.paid})`],
+            ['rejected', `ถูกปฏิเสธ (${counts.rejected})`]
+          ].map(([key, label]) => (
+            <button key={key}
+              className={`chip ${statusFilter === key ? 'on' : ''}`}
+              onClick={() => setStatusFilter(key)}>
+              {key !== 'all' ? <span className="chip-dot" style={{background: PO_STATUS[key]?.color || 'var(--text-3)'}}></span> : null}
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {/* Filter row */}
       <div className="filter-row">
@@ -1171,9 +1227,15 @@ function PurchaseOrdersTab({ kind, project, agg, onAdd, onOpen }) {
       <div className="table-wrap">
         {filtered.length === 0 ? (
           <Empty
-            title={q || statusFilter !== 'all' || catFilter !== 'all' || from || to ? 'ไม่พบใบสั่งซื้อตามเงื่อนไข' : `ยังไม่มีใบสั่งซื้อในหมวด ${KINDS[kind].short}`}
-            hint={q || statusFilter !== 'all' || catFilter !== 'all' || from || to ? 'ลองล้างตัวกรองหรือปรับช่วงวันที่' : 'เริ่มสร้างใบสั่งซื้อใหม่เพื่อจัดการรายจ่ายอย่างเป็นระบบ'}
-            action={!(q || statusFilter !== 'all' || catFilter !== 'all' || from || to) ? <button className="btn primary sm" onClick={onAdd}><Icon name="plus" size={14}/> สร้างใบสั่งซื้อแรก</button> : null}
+            title={q || statusFilter !== 'all' || catFilter !== 'all' || from || to
+              ? (needsApproval ? 'ไม่พบใบสั่งซื้อตามเงื่อนไข' : 'ไม่พบรายจ่ายตามเงื่อนไข')
+              : (needsApproval ? `ยังไม่มีใบสั่งซื้อในหมวด ${KINDS[kind].short}` : `ยังไม่มีรายจ่ายในหมวด ${KINDS[kind].short}`)}
+            hint={q || statusFilter !== 'all' || catFilter !== 'all' || from || to
+              ? 'ลองล้างตัวกรองหรือปรับช่วงวันที่'
+              : (needsApproval ? 'เริ่มสร้างใบสั่งซื้อใหม่เพื่อจัดการรายจ่ายอย่างเป็นระบบ' : 'บันทึกรายจ่ายเพื่อเริ่มต้นบัญชี')}
+            action={!(q || statusFilter !== 'all' || catFilter !== 'all' || from || to)
+              ? <button className="btn primary sm" onClick={onAdd}><Icon name="plus" size={14}/> {needsApproval ? 'สร้างใบสั่งซื้อแรก' : 'บันทึกรายจ่ายแรก'}</button>
+              : null}
           />
         ) : (
         <div className="table-scroll">

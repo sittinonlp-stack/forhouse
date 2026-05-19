@@ -594,6 +594,7 @@ function App() {
               onNewProject={function(){setNewProjOpen(true);}}
               onOpenAllBalance={function(){goto({name:'allBalance'});}}
               onOpenMonthlyPlan={function(){goto({name:'monthlyPlan'});}}
+              currentRole={currentRole}
             />
           ) : view.name === 'monthlyPlan' ? (
             <MonthlyIncomePlan
