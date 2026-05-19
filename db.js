@@ -312,7 +312,7 @@
     // Members fetch wrapped to be resilient: if profiles join fails
     // (e.g., migration 002 not applied yet), still return the project.
     var membersPromise = client.from('project_members')
-      .select('*, profiles(id, display_name, email)')
+      .select('*, profiles!project_members_user_id_fkey(id, display_name, email)')
       .eq('project_id', projectId)
       .then(function (r) {
         if (r.error) {
