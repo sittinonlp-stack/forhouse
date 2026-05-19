@@ -158,7 +158,19 @@ function App() {
   var [search,          setSearch]          = useState('');
   var [currentRole,     setCurrentRole]     = useState('executive');
   var [syncError,       setSyncError]       = useState('');
+  var [toasts,          setToasts]          = useState([]);
   var [showLogin,       setShowLogin]       = useState(false); // show login overlay
+
+  // ── Toast notifications ──────────────────────────────
+  var notify = useCallback(function(message, type) {
+    var id = Date.now() + '_' + Math.random().toString(36).slice(2,7);
+    var t  = { id: id, message: message, type: type || 'success' };
+    setToasts(function(arr) { return arr.concat([t]); });
+    setTimeout(function() {
+      setToasts(function(arr) { return arr.filter(function(x) { return x.id !== id; }); });
+    }, 4200);
+  }, []);
+  useEffect(function() { window.notify = notify; }, [notify]);
 
   // ── Auth init (only when Supabase is configured) ─────
   useEffect(function() {
@@ -281,10 +293,14 @@ function App() {
   var addProject = useCallback(function(proj) {
     if (!liveMode || !_dbReady || !user) {
       setProjects(function(arr) { return [Object.assign({}, proj, { id: uid('p'), transactions: [] }), ...arr]; });
+      if (window.notify) window.notify('สร้างโครงการ "' + proj.name + '" เรียบร้อย (Demo)', 'success');
       return;
     }
     window.db.projects.createProject(proj, user.id)
-      .then(function(created) { setProjects(function(arr) { return [created, ...arr]; }); })
+      .then(function(created) {
+        setProjects(function(arr) { return [created, ...arr]; });
+        if (window.notify) window.notify('สร้างโครงการ "' + proj.name + '" เรียบร้อย', 'success');
+      })
       .catch(function(err) {
         console.error('Create project error:', err);
         setSyncError('สร้างโครงการไม่สำเร็จ: ' + (err.message || err));
@@ -332,6 +348,29 @@ function App() {
         <div style={{position:'fixed',top:'16px',right:'16px',zIndex:999,background:'rgba(239,68,68,.15)',border:'1px solid rgba(239,68,68,.4)',borderRadius:'var(--r)',padding:'12px 16px',fontSize:'13px',color:'#f87171',maxWidth:'320px',boxShadow:'var(--shadow-lg)'}}>
           <Icon name="warn" size={14} style={{marginRight:'8px',verticalAlign:'middle'}}/>
           {syncError}
+        </div>
+      ) : null}
+
+      {/* Notification toasts */}
+      {toasts.length ? (
+        <div style={{position:'fixed', top: syncError ? '70px' : '16px', right:'16px', zIndex:998, display:'flex', flexDirection:'column', gap:'8px', maxWidth:'340px'}}>
+          {toasts.map(function(t) {
+            var tone = t.type === 'error' ? { bg:'rgba(239,68,68,.15)', bd:'rgba(239,68,68,.4)', fg:'#f87171', ic:'warn' }
+                     : t.type === 'warn'  ? { bg:'rgba(251,191,36,.15)', bd:'rgba(251,191,36,.4)', fg:'#fbbf24', ic:'warn' }
+                     : t.type === 'info'  ? { bg:'rgba(96,165,250,.15)', bd:'rgba(96,165,250,.4)', fg:'#60a5fa', ic:'info' }
+                     : { bg:'rgba(34,197,94,.15)', bd:'rgba(34,197,94,.4)', fg:'#22c55e', ic:'check' };
+            return (
+              <div key={t.id} style={{
+                background: tone.bg, border:'1px solid '+tone.bd, borderRadius:'var(--r)',
+                padding:'10px 14px', fontSize:'13px', color: tone.fg,
+                boxShadow:'var(--shadow-lg)', display:'flex', alignItems:'flex-start', gap:'10px',
+                animation:'fh-toast-slide 240ms ease'
+              }}>
+                <Icon name={tone.ic} size={14} style={{marginTop:'2px', flexShrink:0}}/>
+                <span style={{flex:1, lineHeight:1.5, color:'var(--text-1)'}}>{t.message}</span>
+              </div>
+            );
+          })}
         </div>
       ) : null}
 

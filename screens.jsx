@@ -173,16 +173,22 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
   const addTx = useCallback((tx) => {
     const np = { ...project, transactions: [{ ...tx, id: tx.id || genId() }, ...project.transactions] };
     onUpdate(np);
+    if (window.notify) {
+      const label = (KINDS[tx.kind] && KINDS[tx.kind].short) || 'รายการ';
+      window.notify(`เพิ่ม${label} ${formatBaht(tx.amount)} บาทเรียบร้อย`, 'success');
+    }
   }, [project, onUpdate]);
 
   const updateTx = useCallback((tx) => {
     const np = { ...project, transactions: project.transactions.map(t => t.id === tx.id ? tx : t) };
     onUpdate(np);
+    if (window.notify) window.notify('บันทึกการแก้ไขรายการแล้ว', 'info');
   }, [project, onUpdate]);
 
   const removeTx = useCallback((id) => {
     const np = { ...project, transactions: project.transactions.filter(t => t.id !== id) };
     onUpdate(np);
+    if (window.notify) window.notify('ลบรายการแล้ว', 'info');
   }, [project, onUpdate]);
 
   // PO save: insert if new, update if existing
@@ -195,6 +201,22 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
     setPOEditor(null);
     // refresh detail if showing same
     setPODetail(d => d && d.id === po.id ? po : d);
+    if (window.notify) {
+      const kindShort = (KINDS[po.kind] && KINDS[po.kind].short) || '';
+      if (!exists) {
+        window.notify(`สร้างใบสั่งซื้อ ${po.code || ''} (${kindShort}) สำเร็จ`, 'success');
+      } else if (po.status === 'paid') {
+        window.notify(`บันทึกการชำระเงิน ${po.code || ''} เรียบร้อย`, 'success');
+      } else if (po.status === 'approved') {
+        window.notify(`อนุมัติ ${po.code || ''} แล้ว`, 'success');
+      } else if (po.status === 'rejected') {
+        window.notify(`ปฏิเสธ ${po.code || ''}`, 'warn');
+      } else if (po.deposit && po.deposit.status === 'returned') {
+        window.notify(`บันทึกรับคืนเงินประกัน ${po.code || ''} แล้ว`, 'success');
+      } else {
+        window.notify(`บันทึกการเปลี่ยนแปลง ${po.code || ''}`, 'info');
+      }
+    }
   }, [project, onUpdate]);
 
   const updateCategories = useCallback((kind, cats) => {
@@ -206,6 +228,10 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
     const all = { ...(project.categoryCosts || {}) };
     all[kind] = { ...(all[kind] || {}), [name]: Number(cost) || 0 };
     onUpdate({ ...project, categoryCosts: all });
+  }, [project, onUpdate]);
+
+  const bulkSaveCategories = useCallback((newCats, newCosts) => {
+    onUpdate({ ...project, categories: newCats, categoryCosts: newCosts });
   }, [project, onUpdate]);
 
   const TABS = [
@@ -260,11 +286,11 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
 
       {/* Project KPIs */}
       <div className="stat-grid">
-        <Stat tone="income" icon="income" label="เก็บเงินมาแล้ว"
-          value={formatBaht(agg.income)}
+        <Stat tone="income" icon="income" label="ต้นทุนโครงการ"
+          value={formatBaht(agg.incomeNet)}
           delta={agg.incomeDeduction > 0
-            ? `ต้นทุนจริง ${formatBaht(agg.incomeNet, {compact:true})} บ. (หัก ${formatBaht(agg.incomeDeduction, {compact:true})} บ.)`
-            : `${Math.round(agg.income / project.contractValue * 100)}% ของ ${formatBaht(project.contractValue, {compact:true})} มูลค่าสัญญา`}
+            ? `จากเก็บจริง ${formatBaht(agg.income, {compact:true})} บ. (หัก ${formatBaht(agg.incomeDeduction, {compact:true})} บ.)`
+            : `${project.contractValue > 0 ? Math.round(agg.income / project.contractValue * 100) : 0}% ของ ${formatBaht(project.contractValue, {compact:true})} มูลค่าสัญญา`}
           deltaTone="flat"/>
         <Stat tone="expense" icon="expense" label="จ่ายต้นทุนแล้ว"
           value={formatBaht(agg.expense)}
@@ -282,7 +308,7 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
       {(() => {
         const alerts = [];
         for (const k of EXPENSE_KINDS) {
-          const b = project.budgets[k] || 0;
+          const b = effectiveBudget(project, k);
           const a = agg.byKind[k] || 0;
           if (b > 0 && a > b) alerts.push({ kind: k, budget: b, actual: a, over: a - b });
           else if (b > 0 && a / b > 0.9 && a <= b) alerts.push({ kind: k, budget: b, actual: a, warn: true });
@@ -314,13 +340,13 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
       </div>
 
       {tab === 'overview' ? (
-        <OverviewTab project={project} agg={agg} onOpenPO={(po) => setPODetail(po)}/>
+        <OverviewTab project={project} agg={agg} onOpenPO={(po) => setPODetail(po)} onGoToCategories={() => setTab('categories')}/>
       ) : tab === 'team' ? (
         <TeamTab project={project} onUpdate={onUpdate} currentRole={currentRole} onDeleteProject={() => setConfirmDeleteProject(true)}/>
       ) : tab === 'plan' ? (
         <IncomePlanTab project={project} onUpdate={onUpdate} currentRole={currentRole}/>
       ) : tab === 'categories' ? (
-        <CategoriesTab project={project} onUpdateCats={updateCategories} onUpdateCost={updateCategoryCost} currentRole={currentRole}/>
+        <CategoriesTab project={project} onBulkSave={bulkSaveCategories} currentRole={currentRole}/>
       ) : tab === 'income' ? (
         <TransactionsTab
           kind={tab}
@@ -415,20 +441,25 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
 }
 
 /* ===== Overview tab ===== */
-function OverviewTab({ project, agg, onOpenPO }) {
+function OverviewTab({ project, agg, onOpenPO, onGoToCategories }) {
   const trend = useMemo(() => monthlyTrend(project.transactions), [project]);
   const recent = useMemo(() => [...project.transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8), [project]);
   // Pending-vs-paid totals for header alert
   const pendingTotal = agg.expensePending || 0;
 
   // เงินค้างรับ (เงินประกันสินค้า/เครื่องจักรที่ยังไม่ได้รับคืน)
+  // แสดงทุก PO ที่ตั้งเงินมัดจำไว้ ไม่ว่าจะอยู่สถานะใด ยกเว้นถูกปฏิเสธ
   const pendingDeposits = useMemo(() =>
     project.transactions.filter(t =>
       t.kind !== 'income' &&
-      getStatus(t) === 'paid' &&
+      getStatus(t) !== 'rejected' &&
       t.deposit && t.deposit.amount > 0 && t.deposit.status !== 'returned'
     ),
     [project]
+  );
+  const pendingDepositsTotal = useMemo(
+    () => pendingDeposits.reduce((s, t) => s + (t.deposit?.amount || 0), 0),
+    [pendingDeposits]
   );
   return (
     <div>
@@ -450,7 +481,7 @@ function OverviewTab({ project, agg, onOpenPO }) {
               <div>
                 <div className="uppercase muted">เงินค้างรับของโครงการ</div>
                 <div style={{fontSize:'18px', fontWeight:600, marginTop:'2px'}}>
-                  <span className="mono" style={{color:'var(--info)'}}>{formatBaht(agg.depositPending)}</span>
+                  <span className="mono" style={{color:'var(--info)'}}>{formatBaht(pendingDepositsTotal)}</span>
                   <span className="dim" style={{fontSize:'13px', fontWeight:400, marginLeft:'4px'}}>บาท · {pendingDeposits.length} รายการ</span>
                 </div>
                 <div className="dim" style={{fontSize:'12px', marginTop:'2px'}}>เงินประกันที่จ่ายไปแล้วและรอรับคืน (ไม่ถูกรวมเป็นรายจ่าย)</div>
@@ -476,7 +507,10 @@ function OverviewTab({ project, agg, onOpenPO }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {pendingDeposits.map(po => (
+                  {pendingDeposits.map(po => {
+                    const st = getStatus(po);
+                    const isPaid = st === 'paid';
+                    return (
                     <tr key={po.id}>
                       <td className="date">{formatDate(po.paidAt || po.date)}</td>
                       <td className="mono" style={{fontSize:'12.5px'}}>{po.code}</td>
@@ -484,17 +518,19 @@ function OverviewTab({ project, agg, onOpenPO }) {
                         <div className="title">{po.vendor}</div>
                         <div className="sub">
                           <Badge>{KINDS[po.kind].short}</Badge>
+                          <POStatusBadge status={st}/>
                           {po.deposit.note ? <span className="dim" style={{marginLeft:'6px'}}>· {po.deposit.note}</span> : null}
                         </div>
                       </td>
-                      <td className="num"><strong style={{color:'var(--info)'}}>{formatBaht(po.deposit.amount)}</strong></td>
+                      <td className="num"><strong style={{color: isPaid ? 'var(--info)' : 'var(--text-2)'}}>{formatBaht(po.deposit.amount)}</strong></td>
                       <td>
-                        <button className="btn sm" onClick={() => onOpenPO && onOpenPO(po)}>
-                          <Icon name="download" size={12}/> รับคืนเงิน
+                        <button className="btn sm" onClick={() => onOpenPO && onOpenPO(po)} title={isPaid ? 'แนบสลิปและรับคืนเงิน' : 'เปิดดูใบสั่งซื้อ'}>
+                          <Icon name={isPaid ? 'download' : 'edit'} size={12}/> {isPaid ? 'รับคืนเงิน' : 'เปิดดู'}
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -504,48 +540,95 @@ function OverviewTab({ project, agg, onOpenPO }) {
 
       <div style={{display:'grid', gridTemplateColumns:'1.4fr 1fr', gap:'16px', marginBottom:'16px'}} className="responsive-2col">
         <div className="card">
-          <div className="between mb-16">
-            <div>
-              <div className="uppercase muted">งบประมาณตั้งไว้ vs จ่ายจริง</div>
-              <div style={{fontSize:'15px', fontWeight:600, marginTop:4}}>เปรียบเทียบรายหมวด</div>
-            </div>
-            <Badge>รวมงบ {formatBaht(agg.totalBudget, {compact: true})} บ.</Badge>
-          </div>
-          <div className="breakdown">
-            {EXPENSE_KINDS.map(k => {
-              const meta = KINDS[k];
-              const b = project.budgets[k] || 0;
-              const a = agg.byKind[k] || 0;
-              const ratio = b > 0 ? a / b : 0;
-              return (
-                <div key={k} className="breakdown-row">
-                  <div className="swatch" style={{background: meta.color}}></div>
-                  <div className="lbl">
-                    <div className="name">
-                      <KindIcon kind={k} size={14}/> {meta.short}
-                      {ratio > 1 ? <Badge tone="danger" dot>เกินงบ</Badge> : ratio > 0.9 ? <Badge tone="warn" dot>ใกล้เต็ม</Badge> : null}
-                    </div>
-                    <div className="sub">
-                      <span>{Math.round(ratio * 100)}% ของงบ</span>
-                      <span className="sep">·</span>
-                      <span>คงเหลือ {formatBaht(b - a)} บ.</span>
-                    </div>
-                    <Bar value={a} max={b} tone="auto" thin/>
+          {(() => {
+            const sumCostsByKind = {};
+            for (const k of EXPENSE_KINDS) {
+              const cmap = (project.categoryCosts && project.categoryCosts[k]) || {};
+              let s = 0;
+              for (const n in cmap) if (Object.prototype.hasOwnProperty.call(cmap, n)) s += Number(cmap[n] || 0);
+              sumCostsByKind[k] = s;
+            }
+            const totalCosts = EXPENSE_KINDS.reduce((s, k) => s + sumCostsByKind[k], 0);
+            const totalBudgetSet = EXPENSE_KINDS.reduce((s, k) => s + (project.budgets[k] || 0), 0);
+            const totalEff = totalEffectiveBudget(project);
+            const hasAnyData = totalCosts > 0 || totalBudgetSet > 0;
+            return (
+              <>
+                <div className="between mb-16" style={{flexWrap:'wrap', gap:'8px'}}>
+                  <div>
+                    <div className="uppercase muted">ต้นทุนตั้งไว้ vs จ่ายจริง</div>
+                    <div style={{fontSize:'15px', fontWeight:600, marginTop:4}}>เปรียบเทียบรายหมวด</div>
                   </div>
-                  <div className="num">{formatBaht(a)}</div>
-                  <div className="num sec">/ {formatBaht(b, {compact: true})}</div>
+                  <div className="row gap-8" style={{flexWrap:'wrap'}}>
+                    {totalCosts > 0 ? <Badge tone="info">ต้นทุนรวม {formatBaht(totalCosts, {compact:true})} บ.</Badge> : null}
+                    {totalBudgetSet > 0 && totalBudgetSet !== totalCosts ? <Badge>งบโครงการ {formatBaht(totalBudgetSet, {compact:true})} บ.</Badge> : null}
+                    {!hasAnyData ? (
+                      <button className="btn sm primary" onClick={onGoToCategories} title="ไปตั้งราคาต้นทุนต่อหมวดย่อย">
+                        <Icon name="plus" size={12}/> ตั้งต้นทุนหมวดงาน
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
-              );
-            })}
-            <div className="breakdown-row" style={{paddingTop:'12px', borderTop:'1px solid var(--border)', marginTop:'4px'}}>
-              <div className="swatch" style={{background: 'var(--text-2)'}}></div>
-              <div className="lbl">
-                <div className="name"><strong>รวมรายจ่ายทั้งหมด</strong></div>
-              </div>
-              <div className="num"><strong>{formatBaht(agg.expense)}</strong></div>
-              <div className="num sec">/ {formatBaht(agg.totalBudget, {compact:true})}</div>
-            </div>
-          </div>
+
+                {!hasAnyData ? (
+                  <div style={{padding:'14px 16px', background:'var(--bg-2)', borderRadius:'var(--r-sm)', border:'1px dashed var(--border)', marginBottom:'12px', fontSize:'12.5px'}} className="row gap-12">
+                    <Icon name="info" size={18} style={{color:'var(--info)', flexShrink:0}}/>
+                    <div style={{flex:1}}>
+                      <strong>ยังไม่ได้ตั้งต้นทุนหมวดงาน</strong>
+                      <div className="dim" style={{marginTop:'2px', lineHeight:1.5}}>
+                        ไปที่แท็บ <strong>"จัดการหมวดหมู่"</strong> เพื่อกำหนดราคาต้นทุนของแต่ละหมวดย่อย — ระบบจะรวมเป็นต้นทุนรวมของหมวดงาน แล้วนำมาเปรียบเทียบกับยอดจ่ายจริงในตารางนี้
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="breakdown">
+                  {EXPENSE_KINDS.map(k => {
+                    const meta = KINDS[k];
+                    const planned = project.budgets[k] || 0;
+                    const costSum = sumCostsByKind[k];
+                    const b = Math.max(planned, costSum);
+                    const a = agg.byKind[k] || 0;
+                    const ratio = b > 0 ? a / b : 0;
+                    return (
+                      <div key={k} className="breakdown-row">
+                        <div className="swatch" style={{background: meta.color}}></div>
+                        <div className="lbl">
+                          <div className="name">
+                            <KindIcon kind={k} size={14}/> {meta.short}
+                            {ratio > 1 ? <Badge tone="danger" dot>เกินงบ</Badge> : ratio > 0.9 ? <Badge tone="warn" dot>ใกล้เต็ม</Badge> : null}
+                            {costSum > 0 && planned === 0 ? <span className="dim" style={{fontSize:'10.5px'}}>(รวมจากหมวดย่อย)</span> : null}
+                          </div>
+                          <div className="sub">
+                            {b > 0 ? (
+                              <>
+                                <span>{Math.round(ratio * 100)}% ของต้นทุน</span>
+                                <span className="sep">·</span>
+                                <span>{b - a >= 0 ? <>คงเหลือ {formatBaht(b - a)} บ.</> : <span style={{color:'var(--danger)'}}>เกิน {formatBaht(a - b)} บ.</span>}</span>
+                              </>
+                            ) : (
+                              <span className="dim">ยังไม่ตั้งต้นทุน · <a onClick={onGoToCategories} style={{color:'var(--brand-bright)', cursor:'pointer', textDecoration:'underline'}}>ตั้งค่า</a></span>
+                            )}
+                          </div>
+                          <Bar value={a} max={b} tone="auto" thin/>
+                        </div>
+                        <div className="num">{formatBaht(a)}</div>
+                        <div className="num sec">/ {b > 0 ? formatBaht(b, {compact: true}) : '—'}</div>
+                      </div>
+                    );
+                  })}
+                  <div className="breakdown-row" style={{paddingTop:'12px', borderTop:'1px solid var(--border)', marginTop:'4px'}}>
+                    <div className="swatch" style={{background: 'var(--text-2)'}}></div>
+                    <div className="lbl">
+                      <div className="name"><strong>รวมรายจ่ายทั้งหมด</strong></div>
+                    </div>
+                    <div className="num"><strong>{formatBaht(agg.expense)}</strong></div>
+                    <div className="num sec">/ {totalEff > 0 ? formatBaht(totalEff, {compact:true}) : '—'}</div>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         <div className="card">
@@ -859,7 +942,7 @@ function TransactionsTab({ kind, project, onAdd, onEdit, onDelete }) {
 
 /* ===== Team tab ===== */
 function TeamTab({ project, onUpdate, currentRole, onDeleteProject }) {
-  const isExec  = (ROLES[currentRole] || ROLES.staff).canManageCategories;
+  const isExec  = (ROLES[currentRole] || ROLES.staff).canManageTeam;
   const isLive  = window.db && window.db.isReady();
 
   const [members,    setMembers]    = useState(project.members || []);
@@ -1134,13 +1217,34 @@ function TeamTab({ project, onUpdate, currentRole, onDeleteProject }) {
 }
 
 /* ===== Categories tab ===== */
-function CategoriesTab({ project, onUpdateCats, onUpdateCost, currentRole }) {
+function CategoriesTab({ project, onBulkSave, currentRole }) {
   const canEdit = (ROLES[currentRole] || ROLES.staff).canManageCategories;
-  const [adding, setAdding] = useState({ kind: null, name: '' });
-  const [editing, setEditing] = useState({ kind: null, oldName: '', newName: '' });
-  const costs = project.categoryCosts || {};
 
-  // Per-category aggregation: { kind: { name: { count, actual } } }
+  // Local draft state — changes are batched until user clicks Save
+  const initialCats  = () => JSON.parse(JSON.stringify(project.categories  || {}));
+  const initialCosts = () => JSON.parse(JSON.stringify(project.categoryCosts || {}));
+  const [draftCats,  setDraftCats]  = useState(initialCats);
+  const [draftCosts, setDraftCosts] = useState(initialCosts);
+  const [adding,  setAdding]  = useState({ kind: null, name: '' });
+  const [editing, setEditing] = useState({ kind: null, oldName: '', newName: '' });
+  const [saving,  setSaving]  = useState(false);
+  const [savedAt, setSavedAt] = useState(null);
+
+  // Resync draft when the project comes back from the server (id change or new transactions)
+  useEffect(() => {
+    setDraftCats(initialCats());
+    setDraftCosts(initialCosts());
+    setAdding({ kind: null, name: '' });
+    setEditing({ kind: null, oldName: '', newName: '' });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id]);
+
+  const dirty = useMemo(() => (
+    JSON.stringify(draftCats)  !== JSON.stringify(project.categories  || {}) ||
+    JSON.stringify(draftCosts) !== JSON.stringify(project.categoryCosts || {})
+  ), [draftCats, draftCosts, project.categories, project.categoryCosts]);
+
+  // Per-category aggregation (uses live project.transactions — independent of draft)
   const usage = useMemo(() => {
     const m = {};
     for (const t of project.transactions) {
@@ -1160,14 +1264,14 @@ function CategoriesTab({ project, onUpdateCats, onUpdateCost, currentRole }) {
       }
     }
     return m;
-  }, [project]);
+  }, [project.transactions]);
 
   const addCat = (kind) => {
     const name = adding.name.trim();
     if (!name) return;
-    const list = project.categories[kind] || [];
+    const list = draftCats[kind] || [];
     if (list.includes(name)) { setAdding({kind:null, name:''}); return; }
-    onUpdateCats(kind, [...list, name]);
+    setDraftCats({ ...draftCats, [kind]: [...list, name] });
     setAdding({ kind: null, name: '' });
   };
 
@@ -1176,15 +1280,50 @@ function CategoriesTab({ project, onUpdateCats, onUpdateCost, currentRole }) {
     if (u.count > 0) {
       if (!window.confirm(`หมวด "${name}" มีรายการใช้งานอยู่ ${u.count} รายการ ลบหมวดนี้จะไม่ลบรายการ แต่รายการจะยังคงผูกชื่อหมวดเดิม ดำเนินการต่อ?`)) return;
     }
-    onUpdateCats(kind, (project.categories[kind] || []).filter(c => c !== name));
+    setDraftCats({ ...draftCats, [kind]: (draftCats[kind] || []).filter(c => c !== name) });
+    const nextCosts = { ...(draftCosts[kind] || {}) };
+    delete nextCosts[name];
+    setDraftCosts({ ...draftCosts, [kind]: nextCosts });
   };
 
   const saveEdit = () => {
     const newName = editing.newName.trim();
     if (!newName || newName === editing.oldName) { setEditing({kind:null, oldName:'', newName:''}); return; }
-    const list = (project.categories[editing.kind] || []).map(c => c === editing.oldName ? newName : c);
-    onUpdateCats(editing.kind, list);
+    const list = (draftCats[editing.kind] || []).map(c => c === editing.oldName ? newName : c);
+    setDraftCats({ ...draftCats, [editing.kind]: list });
+    // carry over cost price under the new name
+    const kindCosts = { ...(draftCosts[editing.kind] || {}) };
+    if (Object.prototype.hasOwnProperty.call(kindCosts, editing.oldName)) {
+      kindCosts[newName] = kindCosts[editing.oldName];
+      delete kindCosts[editing.oldName];
+    }
+    setDraftCosts({ ...draftCosts, [editing.kind]: kindCosts });
     setEditing({ kind: null, oldName: '', newName: '' });
+  };
+
+  const setCost = (kind, name, cost) => {
+    const kindCosts = { ...(draftCosts[kind] || {}), [name]: Number(cost) || 0 };
+    setDraftCosts({ ...draftCosts, [kind]: kindCosts });
+  };
+
+  const resetDraft = () => {
+    setDraftCats(initialCats());
+    setDraftCosts(initialCosts());
+    setAdding({ kind: null, name: '' });
+    setEditing({ kind: null, oldName: '', newName: '' });
+  };
+
+  const saveAll = () => {
+    if (!dirty || saving) return;
+    setSaving(true);
+    onBulkSave(draftCats, draftCosts);
+    // optimistic — assume sync succeeds; surface error via global toast
+    setTimeout(() => {
+      setSaving(false);
+      setSavedAt(Date.now());
+      if (window.notify) window.notify('บันทึกหมวดหมู่งานเรียบร้อย', 'success');
+      setTimeout(() => setSavedAt(null), 2400);
+    }, 250);
   };
 
   return (
@@ -1192,17 +1331,50 @@ function CategoriesTab({ project, onUpdateCats, onUpdateCost, currentRole }) {
       {canEdit ? (
         <Alert tone="info" icon="info">
           <strong>จัดการหมวดหมู่ย่อย</strong>
-          <p>ปรับแต่งหมวดหมู่ย่อยของแต่ละประเภทรายรับ/รายจ่าย เพื่อให้สอดคล้องกับลักษณะงานในโครงการนี้ — เพิ่ม, แก้ไข, หรือลบได้ตามต้องการ</p>
+          <p>ปรับแต่งหมวดหมู่ย่อยของแต่ละประเภทรายรับ/รายจ่าย — การเพิ่ม แก้ไข ลบ และกำหนดงบ/ต้นทุน จะถูกเก็บไว้ก่อน จนกว่าจะกด <strong>บันทึกทั้งหมด</strong></p>
         </Alert>
       ) : (
         <Alert tone="warn" icon="info">
-          <strong>ดูหมวดหมู่ย่อยเท่านั้น</strong> — เฉพาะผู้บริหารสามารถเพิ่ม แก้ไข หรือลบหมวดหมู่ได้
+          <strong>ดูหมวดหมู่ย่อยเท่านั้น</strong> — เฉพาะผู้จัดการและผู้บริหารสามารถเพิ่ม แก้ไข หรือลบหมวดหมู่ได้
         </Alert>
       )}
+
+      {/* Save bar */}
+      {canEdit ? (
+        <div className="card tight mb-16" style={{
+          padding:'10px 14px',
+          display:'flex', alignItems:'center', justifyContent:'space-between',
+          flexWrap:'wrap', gap:'12px',
+          background: dirty ? 'rgba(251,191,36,.08)' : 'var(--bg-1)',
+          borderColor: dirty ? 'rgba(251,191,36,.35)' : 'var(--border)'
+        }}>
+          <div className="row gap-8" style={{fontSize:'13px'}}>
+            <Icon name={dirty ? 'warn' : (savedAt ? 'check' : 'info')} size={14}
+              style={{color: dirty ? 'var(--warn)' : (savedAt ? 'var(--brand-bright)' : 'var(--text-3)')}}/>
+            {dirty ? (
+              <span><strong>มีการเปลี่ยนแปลงที่ยังไม่ได้บันทึก</strong> — กดบันทึกทั้งหมดเพื่อยืนยัน</span>
+            ) : savedAt ? (
+              <span style={{color:'var(--brand-bright)'}}><strong>บันทึกสำเร็จ</strong> ข้อมูลซิงค์เรียบร้อย</span>
+            ) : (
+              <span className="dim">ยังไม่มีการเปลี่ยนแปลง</span>
+            )}
+          </div>
+          <div className="row gap-8">
+            <button className="btn ghost sm" onClick={resetDraft} disabled={!dirty || saving}>
+              <Icon name="refresh" size={13}/> ยกเลิกการเปลี่ยนแปลง
+            </button>
+            <button className="btn primary" onClick={saveAll} disabled={!dirty || saving}>
+              <Icon name="check" size={14}/> {saving ? 'กำลังบันทึก...' : 'บันทึกทั้งหมด'}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(320px, 1fr))', gap:'16px'}}>
         {ALL_KINDS.map(kind => {
           const meta = KINDS[kind];
-          const list = project.categories[kind] || [];
+          const list = draftCats[kind] || [];
+          const kindCostMap = draftCosts[kind] || {};
           return (
             <div key={kind} className="card">
               <div className="between mb-16">
@@ -1227,7 +1399,7 @@ function CategoriesTab({ project, onUpdateCats, onUpdateCost, currentRole }) {
                 {list.map(name => {
                   const isEditing = editing.kind === kind && editing.oldName === name;
                   const u = (usage[kind] && usage[kind][name]) || { count: 0, actual: 0 };
-                  const cost = ((costs[kind] || {})[name]) || 0;
+                  const cost = (kindCostMap[name]) || 0;
                   const diff = kind === 'income' ? (u.actual - cost) : (cost - u.actual);
                   const hasCost = cost > 0;
                   const hasActual = u.actual > 0;
@@ -1264,7 +1436,7 @@ function CategoriesTab({ project, onUpdateCats, onUpdateCost, currentRole }) {
                                 <div className="with-suffix" style={{marginTop:'2px'}}>
                                   <input className="input-base num-input mono" inputMode="decimal" placeholder="0"
                                     value={cost === 0 ? '' : cost}
-                                    onChange={e => onUpdateCost(kind, name, parseFloat(String(e.target.value).replace(/,/g,'')) || 0)}
+                                    onChange={e => setCost(kind, name, parseFloat(String(e.target.value).replace(/,/g,'')) || 0)}
                                     style={{padding:'3px 6px', fontSize:'11.5px'}}/>
                                   <span className="suffix" style={{fontSize:'10px'}}>บ.</span>
                                 </div>
@@ -1309,7 +1481,7 @@ function CategoriesTab({ project, onUpdateCats, onUpdateCost, currentRole }) {
 
               {/* Per-kind summary */}
               {(() => {
-                const kindCosts  = list.reduce((s, n) => s + (((costs[kind] || {})[n]) || 0), 0);
+                const kindCosts  = list.reduce((s, n) => s + ((kindCostMap[n]) || 0), 0);
                 const kindActual = list.reduce((s, n) => s + (((usage[kind] || {})[n] || {}).actual || 0), 0);
                 if (kindCosts === 0 && kindActual === 0) return null;
                 const kindDiff = kind === 'income' ? (kindActual - kindCosts) : (kindCosts - kindActual);

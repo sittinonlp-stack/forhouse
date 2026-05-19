@@ -361,6 +361,25 @@ function aggregateProject(project) {
   return totals;
 }
 
+/* Effective budget per kind — falls back to sum of category cost prices
+   when project.budgets[kind] hasn't been set. */
+function effectiveBudget(project, kind) {
+  var b = (project.budgets && project.budgets[kind]) || 0;
+  if (b > 0) return b;
+  var costs = (project.categoryCosts && project.categoryCosts[kind]) || {};
+  var sum = 0;
+  for (var k in costs) { if (Object.prototype.hasOwnProperty.call(costs, k)) sum += Number(costs[k] || 0); }
+  return sum;
+}
+
+function totalEffectiveBudget(project) {
+  var kinds = window.EXPENSE_KINDS || ['material','labor','subcontract','machine','other'];
+  return kinds.reduce(function (s, k) { return s + effectiveBudget(project, k); }, 0);
+}
+
+window.effectiveBudget = effectiveBudget;
+window.totalEffectiveBudget = totalEffectiveBudget;
+
 /* ============ Vendor advance/retention history helper ============ */
 // คืนประวัติการเบิก/หักของช่างทีมเดียวกัน ในหมวดงานเดียวกัน ภายในโครงการเดียวกัน
 function getVendorHistory(project, kind, vendorName, excludeId) {
@@ -431,6 +450,7 @@ Object.assign(window, {
   Icon, KindIcon, Stat, Bar, Badge, Modal, Empty, ChartDefs, Sparkline, LineChart,
   FileField, Alert, Confirm,
   aggregateProject, getStatus, getPOItems, PO_STATUS, getVendorHistory, getEffectiveRole,
+  effectiveBudget, totalEffectiveBudget,
   monthlyTrend, downloadCSV,
   ToastContext, useToast
 });

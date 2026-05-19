@@ -136,6 +136,9 @@
       paymentSlip:     row.payment_slip_url || null,
       attachment:      row.payment_slip_url || null,
       images:          Array.isArray(row.images) ? row.images : (row.images ? JSON.parse(row.images) : []),
+      deposit:         row.deposit
+                         ? (typeof row.deposit === 'string' ? JSON.parse(row.deposit) : row.deposit)
+                         : null,
       _dbSource:       'po'
     };
   }
@@ -188,6 +191,7 @@
       paid_at:         po.paidAt || null,
       payment_slip_url:po.paymentSlip || null,
       images:          Array.isArray(po.images) ? po.images : [],
+      deposit:         po.deposit && po.deposit.amount > 0 ? po.deposit : null,
       updated_at:      new Date().toISOString()
     };
   }
