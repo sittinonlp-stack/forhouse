@@ -2184,3 +2184,51 @@ table.data tfoot td {
   from { opacity: 0; transform: translateX(20px); }
   to   { opacity: 1; transform: translateX(0); }
 }
+
+/* ── PROJECT SUMMARY REPORT ────────────────────────────── */
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  margin-top: 6px;
+}
+.summary-table th {
+  text-align: left;
+  font-weight: 500;
+  padding: 7px 10px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.summary-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.summary-table tbody tr:hover {
+  background: rgba(255,255,255,0.02);
+}
+.summary-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.summary-group button:hover {
+  background: var(--bg-hover) !important;
+}
+
+@media print {
+  #summary-print-area, #summary-print-area * { color: #000 !important; }
+  #summary-print-area .dim { color: #666 !important; }
+  #summary-print-area .summary-group button {
+    background: #f3f4f6 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  #summary-print-area .summary-table th {
+    background: #e5e7eb !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

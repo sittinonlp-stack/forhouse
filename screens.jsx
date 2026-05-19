@@ -221,6 +221,7 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
   const [editTx, setEditTx] = useState(null);     // income edit
   const [addingIncome, setAddingIncome] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
 
   // PO state
   const [poEditor, setPOEditor] = useState(null);  // { kind, po? }
@@ -339,6 +340,9 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
           </div>
         </div>
         <div className="page-actions">
+          <button className="btn" onClick={() => setSummaryOpen(true)}>
+            <Icon name="document" size={16}/> สรุปบัญชีโครงการ
+          </button>
           {role.canViewBalance ? (
             <button className="btn" onClick={onOpenBalance}>
               <Icon name="balance" size={16}/> งบดุลโครงการ
@@ -481,6 +485,9 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
         onClose={() => setConfirmDel(null)}
         onConfirm={() => { removeTx(confirmDel); setConfirmDel(null); }}
       />
+      {summaryOpen ? (
+        <ProjectSummaryReport project={project} agg={agg} onClose={() => setSummaryOpen(false)}/>
+      ) : null}
       {confirmDeleteProject ? (
         <Modal open={true} onClose={() => { setConfirmDeleteProject(false); setDeleteConfirmText(''); }} title="ยืนยันการลบโครงการ"
           footer={<>
@@ -1763,13 +1770,6 @@ function TransactionModal({ mode, kind, project, initial, onClose, onSubmit }) {
           <FileField value={attach} onChange={setAttach}/>
         </div>
 
-        <div className="field full">
-          <label>ลิงก์ใบกำกับภาษี (ไฟล์ภายนอก — ถ้ามี)</label>
-          <input className="input-base" type="url" placeholder="https://drive.google.com/... หรือ URL อื่นๆ"
-            value={taxInvoiceUrl} onChange={e => setTaxInvoiceUrl(e.target.value)}/>
-          <span className="hint">วาง URL ของไฟล์ใบกำกับภาษีจาก Google Drive, OneDrive หรือระบบอื่นๆ</span>
-        </div>
-
         {amt > 0 ? (
           <div className="field full">
             <div className="calc-box">
@@ -2460,4 +2460,359 @@ function AllBalance({ projects, onBack, currentRole }) {
   );
 }
 
-Object.assign(window, { Dashboard, ProjectView, BalanceSheet, AllBalance });
+/* ============================================================
+   PROJECT SUMMARY REPORT — รายงานสรุปบัญชีโครงการแบบครบถ้วน
+   แยกตามหมวดหลัก → หมวดย่อย พร้อมยอดรวมและประวัติรายการ
+   ============================================================ */
+function ProjectSummaryReport({ project, agg, onClose }) {
+  const [expand, setExpand] = useState({});  // toggle expand per group key
+  const today = new Date().toISOString().slice(0,10);
+
+  const toggle = (key) => setExpand(e => ({ ...e, [key]: !e[key] }));
+
+  // ── Build income groups: by category ───────────────────────
+  const incomeGroups = useMemo(() => {
+    const groups = {};
+    project.transactions.filter(t => t.kind === 'income').forEach(t => {
+      const cat = t.category || '— ไม่ระบุหมวด —';
+      if (!groups[cat]) groups[cat] = { items: [], total: 0, gross: 0, deduction: 0 };
+      const ded = t.deductionPct > 0 ? t.amount * (t.deductionPct / 100) : 0;
+      groups[cat].items.push(t);
+      groups[cat].gross += t.amount;
+      groups[cat].deduction += ded;
+      groups[cat].total += (t.amount - ded);
+    });
+    return groups;
+  }, [project.transactions]);
+
+  // ── Build expense groups: by kind → by category ────────────
+  const expenseGroups = useMemo(() => {
+    const groups = {};
+    project.transactions.filter(t => t.kind !== 'income' && getStatus(t) === 'paid').forEach(t => {
+      const kind = t.kind;
+      if (!groups[kind]) groups[kind] = { categories: {}, total: 0, count: 0 };
+      const items = getPOItems(t);
+      if (items.length === 0) {
+        // Treat the whole PO as one entry under category 'category' or first item
+        const cat = t.category || '— ไม่ระบุหมวด —';
+        if (!groups[kind].categories[cat]) groups[kind].categories[cat] = { items: [], total: 0 };
+        groups[kind].categories[cat].items.push({ tx: t, line: null, amount: t.amount });
+        groups[kind].categories[cat].total += t.amount;
+        groups[kind].total += t.amount;
+        groups[kind].count += 1;
+      } else {
+        items.forEach(it => {
+          const cat = it.category || '— ไม่ระบุหมวด —';
+          if (!groups[kind].categories[cat]) groups[kind].categories[cat] = { items: [], total: 0 };
+          groups[kind].categories[cat].items.push({ tx: t, line: it, amount: it.amount });
+          groups[kind].categories[cat].total += it.amount;
+          groups[kind].total += it.amount;
+        });
+        groups[kind].count += 1;
+      }
+    });
+    return groups;
+  }, [project.transactions]);
+
+  // Totals
+  const incomeGross = Object.values(incomeGroups).reduce((s, g) => s + g.gross, 0);
+  const incomeDeduction = Object.values(incomeGroups).reduce((s, g) => s + g.deduction, 0);
+  const incomeNet = incomeGross - incomeDeduction;
+  const expenseTotal = Object.values(expenseGroups).reduce((s, g) => s + g.total, 0);
+  const profit = incomeNet - expenseTotal;
+
+  const onPrint = () => window.print();
+
+  const onExportCSV = () => {
+    const rows = [['ประเภท','หมวดหลัก','หมวดย่อย','วันที่','รายละเอียด','คู่ค้า/เจ้าของงาน','จำนวน']];
+    // income
+    Object.keys(incomeGroups).forEach(cat => {
+      incomeGroups[cat].items.forEach(t => {
+        rows.push(['รายรับ', 'งวดงาน/รายรับ', cat, t.date, t.description || '', t.vendor || '', t.amount]);
+      });
+    });
+    // expense
+    Object.keys(expenseGroups).forEach(kind => {
+      const kindLabel = (KINDS[kind] && KINDS[kind].label) || kind;
+      const cats = expenseGroups[kind].categories;
+      Object.keys(cats).forEach(cat => {
+        cats[cat].items.forEach(({ tx, line, amount }) => {
+          rows.push([
+            'รายจ่าย', kindLabel, cat, tx.date,
+            line ? line.description : (tx.description || ''),
+            tx.vendor || '', amount
+          ]);
+        });
+      });
+    });
+    rows.push([]);
+    rows.push(['', '', '', '', '', 'รวมรายรับสุทธิ', incomeNet]);
+    rows.push(['', '', '', '', '', 'รวมรายจ่าย', expenseTotal]);
+    rows.push(['', '', '', '', '', 'กำไรสุทธิ', profit]);
+    downloadCSV(`${project.code}_summary_${today}.csv`, rows);
+  };
+
+  return (
+    <Modal open={true} onClose={onClose} wide
+      title="สรุปบัญชีโครงการ"
+      footer={<>
+        <button className="btn ghost" onClick={onClose}>ปิด</button>
+        <button className="btn" onClick={onExportCSV}><Icon name="download" size={14}/> ดาวน์โหลด CSV</button>
+        <button className="btn primary" onClick={onPrint}><Icon name="document" size={14}/> พิมพ์รายงาน</button>
+      </>}>
+
+      <div id="summary-print-area" style={{padding:'4px 0'}}>
+        {/* Header info */}
+        <div className="card tight mb-16" style={{background:'var(--bg-1)', padding:'14px 18px'}}>
+          <div style={{fontSize:'18px', fontWeight:600, marginBottom:'4px'}}>{project.name}</div>
+          <div className="dim" style={{fontSize:'12.5px'}}>
+            <span className="mono">{project.code}</span> · {project.client || '—'} · {project.location || '—'}<br/>
+            ระยะเวลา: {formatDateLong(project.startDate)} — {formatDateLong(project.endDate)}<br/>
+            มูลค่าสัญญา: <strong className="mono">{formatBaht(project.contractValue)}</strong> บ. · พิมพ์เมื่อ: {formatDateLong(today)}
+          </div>
+        </div>
+
+        {/* Summary tiles */}
+        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:'12px', marginBottom:'20px'}}>
+          <div className="card tight" style={{background:'rgba(34,197,94,.08)', borderColor:'rgba(34,197,94,.25)', padding:'12px 16px'}}>
+            <div className="uppercase muted" style={{fontSize:'10.5px', marginBottom:'4px'}}>รายรับสุทธิ</div>
+            <div className="mono" style={{fontSize:'20px', fontWeight:600, color:'var(--brand-bright)'}}>{formatBaht(incomeNet)}</div>
+            <div className="dim" style={{fontSize:'11.5px', marginTop:'2px'}}>
+              จาก {formatBaht(incomeGross, {compact:true})} (หัก {formatBaht(incomeDeduction, {compact:true})})
+            </div>
+          </div>
+          <div className="card tight" style={{background:'rgba(248,113,113,.06)', borderColor:'rgba(248,113,113,.25)', padding:'12px 16px'}}>
+            <div className="uppercase muted" style={{fontSize:'10.5px', marginBottom:'4px'}}>รายจ่ายรวม</div>
+            <div className="mono" style={{fontSize:'20px', fontWeight:600, color:'var(--danger)'}}>{formatBaht(expenseTotal)}</div>
+            <div className="dim" style={{fontSize:'11.5px', marginTop:'2px'}}>
+              {Object.keys(expenseGroups).length} หมวดหลัก
+            </div>
+          </div>
+          <div className="card tight" style={{
+            background: profit >= 0 ? 'rgba(96,165,250,.06)' : 'rgba(248,113,113,.08)',
+            borderColor: profit >= 0 ? 'rgba(96,165,250,.3)' : 'rgba(248,113,113,.3)',
+            padding:'12px 16px'
+          }}>
+            <div className="uppercase muted" style={{fontSize:'10.5px', marginBottom:'4px'}}>{profit >= 0 ? 'กำไรสุทธิ' : 'ขาดทุนสุทธิ'}</div>
+            <div className="mono" style={{fontSize:'20px', fontWeight:600, color: profit >= 0 ? 'var(--info)' : 'var(--danger)'}}>
+              {profit >= 0 ? '+' : '−'}{formatBaht(Math.abs(profit))}
+            </div>
+            <div className="dim" style={{fontSize:'11.5px', marginTop:'2px'}}>
+              อัตรากำไร {incomeNet > 0 ? ((profit/incomeNet)*100).toFixed(1) : '0.0'}%
+            </div>
+          </div>
+        </div>
+
+        {/* INCOME SECTION */}
+        <div className="mb-24">
+          <div style={{
+            display:'flex', alignItems:'center', gap:'10px',
+            padding:'10px 14px', marginBottom:'10px',
+            background:'rgba(34,197,94,.08)',
+            borderLeft:'3px solid var(--brand-bright)',
+            borderRadius:'6px'
+          }}>
+            <Icon name="income" size={18} style={{color:'var(--brand-bright)'}}/>
+            <div style={{fontSize:'15px', fontWeight:600, flex:1}}>รายรับโครงการ</div>
+            <div className="mono" style={{fontSize:'15px', fontWeight:600, color:'var(--brand-bright)'}}>{formatBaht(incomeNet)} บ.</div>
+          </div>
+
+          {Object.keys(incomeGroups).length === 0 ? (
+            <div className="dim" style={{padding:'12px 14px', fontSize:'13px', fontStyle:'italic'}}>— ยังไม่มีรายรับ —</div>
+          ) : Object.keys(incomeGroups).sort().map(cat => {
+            const g = incomeGroups[cat];
+            const key = 'inc-' + cat;
+            const isOpen = expand[key] !== false; // default open
+            return (
+              <div key={cat} className="summary-group" style={{marginBottom:'8px'}}>
+                <button
+                  type="button"
+                  onClick={() => toggle(key)}
+                  style={{
+                    width:'100%', display:'flex', alignItems:'center', gap:'10px',
+                    padding:'9px 14px', background:'var(--bg-1)', border:'1px solid var(--border)',
+                    borderRadius:'6px', cursor:'pointer', color:'var(--text-1)', textAlign:'left'
+                  }}>
+                  <Icon name={isOpen ? 'chevron-down' : 'chevron-right'} size={13}/>
+                  <span style={{fontWeight:600, fontSize:'13.5px', flex:1}}>{cat}</span>
+                  <span className="dim" style={{fontSize:'12px'}}>{g.items.length} รายการ</span>
+                  <span className="mono" style={{fontSize:'14px', fontWeight:600, color:'var(--brand-bright)', minWidth:'120px', textAlign:'right'}}>
+                    {formatBaht(g.total)} บ.
+                  </span>
+                </button>
+                {isOpen ? (
+                  <table className="summary-table">
+                    <thead>
+                      <tr>
+                        <th style={{width:'90px'}}>วันที่</th>
+                        <th>รายละเอียด</th>
+                        <th>เจ้าของงาน</th>
+                        <th style={{width:'110px', textAlign:'right'}}>ยอดเรียกเก็บ</th>
+                        <th style={{width:'100px', textAlign:'right'}}>หัก</th>
+                        <th style={{width:'110px', textAlign:'right'}}>สุทธิ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {g.items.sort((a,b) => a.date.localeCompare(b.date)).map(t => {
+                        const ded = t.deductionPct > 0 ? t.amount * (t.deductionPct/100) : 0;
+                        return (
+                          <tr key={t.id}>
+                            <td className="mono dim" style={{fontSize:'12px'}}>{t.date}</td>
+                            <td>{t.description || '—'}{t.vat ? <Badge tone="info">VAT</Badge> : null}</td>
+                            <td className="dim">{t.vendor || '—'}</td>
+                            <td className="mono" style={{textAlign:'right'}}>{formatBaht(t.amount)}</td>
+                            <td className="mono dim" style={{textAlign:'right'}}>
+                              {ded > 0 ? `−${formatBaht(ded)}` : '—'}
+                            </td>
+                            <td className="mono" style={{textAlign:'right', color:'var(--brand-bright)', fontWeight:600}}>
+                              {formatBaht(t.amount - ded)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* EXPENSE SECTION */}
+        <div>
+          <div style={{
+            display:'flex', alignItems:'center', gap:'10px',
+            padding:'10px 14px', marginBottom:'10px',
+            background:'rgba(248,113,113,.06)',
+            borderLeft:'3px solid var(--danger)',
+            borderRadius:'6px'
+          }}>
+            <Icon name="expense" size={18} style={{color:'var(--danger)'}}/>
+            <div style={{fontSize:'15px', fontWeight:600, flex:1}}>รายจ่ายโครงการ</div>
+            <div className="mono" style={{fontSize:'15px', fontWeight:600, color:'var(--danger)'}}>{formatBaht(expenseTotal)} บ.</div>
+          </div>
+
+          {Object.keys(expenseGroups).length === 0 ? (
+            <div className="dim" style={{padding:'12px 14px', fontSize:'13px', fontStyle:'italic'}}>— ยังไม่มีรายจ่าย —</div>
+          ) : EXPENSE_KINDS.filter(k => expenseGroups[k]).map(kind => {
+            const g = expenseGroups[kind];
+            const meta = KINDS[kind];
+            return (
+              <div key={kind} style={{marginBottom:'14px'}}>
+                {/* Kind header */}
+                <div style={{
+                  display:'flex', alignItems:'center', gap:'10px',
+                  padding:'8px 12px', marginBottom:'4px',
+                  background:meta.color + '15',
+                  borderLeft:'3px solid ' + meta.color,
+                  borderRadius:'4px'
+                }}>
+                  <KindIcon kind={kind} size={14}/>
+                  <span style={{fontSize:'13.5px', fontWeight:600, flex:1}}>{meta.label}</span>
+                  <span className="dim" style={{fontSize:'11.5px'}}>{g.count} เอกสาร · {Object.keys(g.categories).length} หมวดย่อย</span>
+                  <span className="mono" style={{fontSize:'14px', fontWeight:600, color: meta.color, minWidth:'120px', textAlign:'right'}}>
+                    {formatBaht(g.total)} บ.
+                  </span>
+                </div>
+
+                {/* Categories within this kind */}
+                {Object.keys(g.categories).sort().map(cat => {
+                  const c = g.categories[cat];
+                  const key = `exp-${kind}-${cat}`;
+                  const isOpen = expand[key] !== false;
+                  return (
+                    <div key={cat} className="summary-group" style={{marginLeft:'14px', marginBottom:'6px'}}>
+                      <button
+                        type="button"
+                        onClick={() => toggle(key)}
+                        style={{
+                          width:'100%', display:'flex', alignItems:'center', gap:'10px',
+                          padding:'7px 12px', background:'var(--bg-1)', border:'1px solid var(--border)',
+                          borderRadius:'5px', cursor:'pointer', color:'var(--text-1)', textAlign:'left'
+                        }}>
+                        <Icon name={isOpen ? 'chevron-down' : 'chevron-right'} size={12}/>
+                        <span style={{fontWeight:500, fontSize:'12.5px', flex:1}}>{cat}</span>
+                        <span className="dim" style={{fontSize:'11.5px'}}>{c.items.length} รายการ</span>
+                        <span className="mono" style={{fontSize:'13px', fontWeight:600, minWidth:'110px', textAlign:'right'}}>
+                          {formatBaht(c.total)} บ.
+                        </span>
+                      </button>
+                      {isOpen ? (
+                        <table className="summary-table" style={{fontSize:'12px'}}>
+                          <thead>
+                            <tr>
+                              <th style={{width:'90px'}}>วันที่</th>
+                              <th style={{width:'90px'}}>เลข PO</th>
+                              <th>รายละเอียด</th>
+                              <th>คู่ค้า</th>
+                              <th style={{width:'70px', textAlign:'right'}}>จำนวน</th>
+                              <th style={{width:'110px', textAlign:'right'}}>ราคา/หน่วย</th>
+                              <th style={{width:'110px', textAlign:'right'}}>รวม</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {c.items.sort((a,b) => a.tx.date.localeCompare(b.tx.date)).map((entry, i) => (
+                              <tr key={entry.tx.id + '_' + i}>
+                                <td className="mono dim">{entry.tx.date}</td>
+                                <td className="mono dim">{entry.tx.code || '—'}</td>
+                                <td>{entry.line ? entry.line.description : (entry.tx.description || '—')}</td>
+                                <td className="dim">{entry.tx.vendor || '—'}</td>
+                                <td className="mono dim" style={{textAlign:'right'}}>
+                                  {entry.line ? `${entry.line.qty} ${entry.line.unit}` : '—'}
+                                </td>
+                                <td className="mono dim" style={{textAlign:'right'}}>
+                                  {entry.line ? formatBaht(entry.line.unitPrice) : '—'}
+                                </td>
+                                <td className="mono" style={{textAlign:'right', fontWeight:600}}>
+                                  {formatBaht(entry.amount)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Grand summary */}
+        <div className="card mt-24" style={{padding:'16px 20px', background:'var(--bg-1)'}}>
+          <div style={{fontSize:'14px', fontWeight:600, marginBottom:'12px'}}>สรุปยอดรวมโครงการ</div>
+          <table className="summary-table">
+            <tbody>
+              <tr>
+                <td>รายรับรวม (Gross)</td>
+                <td className="mono" style={{textAlign:'right'}}>{formatBaht(incomeGross)} บ.</td>
+              </tr>
+              <tr>
+                <td>หักจากรายรับ</td>
+                <td className="mono dim" style={{textAlign:'right'}}>−{formatBaht(incomeDeduction)} บ.</td>
+              </tr>
+              <tr style={{borderTop:'1px solid var(--border)'}}>
+                <td style={{fontWeight:600}}>รายรับสุทธิ</td>
+                <td className="mono" style={{textAlign:'right', fontWeight:600, color:'var(--brand-bright)'}}>{formatBaht(incomeNet)} บ.</td>
+              </tr>
+              <tr>
+                <td>รายจ่ายรวม</td>
+                <td className="mono" style={{textAlign:'right', color:'var(--danger)'}}>−{formatBaht(expenseTotal)} บ.</td>
+              </tr>
+              <tr style={{borderTop:'2px solid var(--text-1)'}}>
+                <td style={{fontSize:'14px', fontWeight:700}}>{profit >= 0 ? 'กำไรสุทธิ' : 'ขาดทุนสุทธิ'}</td>
+                <td className="mono" style={{textAlign:'right', fontSize:'16px', fontWeight:700,
+                  color: profit >= 0 ? 'var(--info)' : 'var(--danger)'}}>
+                  {profit >= 0 ? '+' : '−'}{formatBaht(Math.abs(profit))} บ.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+Object.assign(window, { Dashboard, ProjectView, BalanceSheet, AllBalance, ProjectSummaryReport });

@@ -35,6 +35,7 @@ const Icon = ({ name, size = 16, className = '', style }) => {
     case 'arrow-right': return (<svg {...p}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>);
     case 'check': return (<svg {...p}><polyline points="20 6 9 17 4 12"/></svg>);
     case 'chevron-down': return (<svg {...p}><polyline points="6 9 12 15 18 9"/></svg>);
+    case 'chevron-right': return (<svg {...p}><polyline points="9 18 15 12 9 6"/></svg>);
     case 'trend-up': return (<svg {...p}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>);
     case 'trend-down': return (<svg {...p}><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>);
     case 'warn': return (<svg {...p}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>);

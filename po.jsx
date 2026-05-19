@@ -449,13 +449,6 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
         </div>
       </div>
 
-      {/* Tax invoice external link */}
-      <div className="field mt-12">
-        <label>ลิงก์ใบกำกับภาษี (ไฟล์ภายนอก — ถ้ามี)</label>
-        <input className="input-base" type="url" placeholder="https://drive.google.com/... หรือ URL อื่นๆ"
-          value={taxInvoiceUrl} onChange={e => setTaxInvoiceUrl(e.target.value)}/>
-        <span className="hint">วาง URL ของไฟล์ใบกำกับภาษีจาก Google Drive, OneDrive หรือระบบอื่นๆ</span>
-      </div>
 
       {/* Material/Machine: เงินประกัน */}
       {isMaterialOrMachine ? (
