@@ -263,6 +263,54 @@ function App() {
     if (view.name === 'project' && view.projectId) ensureProjectFull(view.projectId);
   }, [view]);
 
+  // ── Realtime subscription for the open project ───────
+  useEffect(function() {
+    if (view.name !== 'project' || !view.projectId || !liveMode || !_dbReady) return;
+    var projectId = view.projectId;
+
+    var channel = window.db.projects.subscribeToProject(
+      projectId,
+      function onPO(eventType, poId, mappedPO) {
+        setProjects(function(arr) {
+          return arr.map(function(p) {
+            if (p.id !== projectId) return p;
+            var txs = p.transactions || [];
+            if (eventType === 'DELETE') {
+              return Object.assign({}, p, { transactions: txs.filter(function(t) { return t.id !== poId; }) });
+            }
+            var exists = txs.some(function(t) { return t.id === mappedPO.id; });
+            return Object.assign({}, p, {
+              transactions: exists
+                ? txs.map(function(t) { return t.id === mappedPO.id ? mappedPO : t; })
+                : [mappedPO].concat(txs)
+            });
+          });
+        });
+      },
+      function onIncome(eventType, txId, mappedTx) {
+        setProjects(function(arr) {
+          return arr.map(function(p) {
+            if (p.id !== projectId) return p;
+            var txs = p.transactions || [];
+            if (eventType === 'DELETE') {
+              return Object.assign({}, p, { transactions: txs.filter(function(t) { return t.id !== txId; }) });
+            }
+            var exists = txs.some(function(t) { return t.id === mappedTx.id; });
+            return Object.assign({}, p, {
+              transactions: exists
+                ? txs.map(function(t) { return t.id === mappedTx.id ? mappedTx : t; })
+                : [mappedTx].concat(txs)
+            });
+          });
+        });
+      }
+    );
+
+    return function() {
+      window.db.projects.unsubscribeProject(channel);
+    };
+  }, [view.name, view.projectId, liveMode]);
+
   // ── Mutations ────────────────────────────────────────
   var updateProject = useCallback(function(np) {
     var oldP = projects.find(function(p) { return p.id === np.id; });

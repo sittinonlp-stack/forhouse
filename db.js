@@ -643,6 +643,75 @@
   }
 
   // ─────────────────────────────────────────────
+  // REALTIME — live project sync across clients
+  // ─────────────────────────────────────────────
+
+  // Fetch a single PO with its items (used after a realtime UPDATE event)
+  function getPOFull(poId) {
+    return client.from('purchase_orders')
+      .select('*, po_items(*)')
+      .eq('id', poId)
+      .single()
+      .then(function(res) {
+        if (res.error) throw res.error;
+        return mapPORow(res.data);
+      });
+  }
+
+  // Subscribe to all PO + income changes for one project.
+  // onPO(eventType, poId, mappedPO | null)
+  // onIncome(eventType, txId, mappedTx | null)
+  function subscribeToProject(projectId, onPO, onIncome) {
+    if (!client) return null;
+
+    var channel = client
+      .channel('forhouse-proj-' + projectId)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'purchase_orders',
+        filter: 'project_id=eq.' + projectId
+      }, function(payload) {
+        var ev = payload.eventType;
+        if (ev === 'DELETE') {
+          var did = payload.old && payload.old.id;
+          if (did) onPO('DELETE', did, null);
+          return;
+        }
+        var newId = payload.new && payload.new.id;
+        if (!newId) return;
+        // Re-fetch to include po_items
+        getPOFull(newId)
+          .then(function(po) { onPO(ev, newId, po); })
+          .catch(function(e) { console.warn('[RT] PO fetch error:', e); });
+      })
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'income_records',
+        filter: 'project_id=eq.' + projectId
+      }, function(payload) {
+        var ev = payload.eventType;
+        if (ev === 'DELETE') {
+          var did = payload.old && payload.old.id;
+          if (did) onIncome('DELETE', did, null);
+          return;
+        }
+        var row = payload.new;
+        if (!row) return;
+        onIncome(ev, row.id, mapIncomeRow(row));
+      })
+      .subscribe(function(status) {
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('[RT] channel error for project', projectId);
+        }
+      });
+
+    return channel;
+  }
+
+  function unsubscribeProject(channel) {
+    if (!client || !channel) return;
+    try { client.removeChannel(channel); } catch (e) {}
+  }
+
+  // ─────────────────────────────────────────────
   // isReady — check if config has been filled in
   // ─────────────────────────────────────────────
 
@@ -667,14 +736,16 @@
       upsertProfile: upsertProfile
     },
     projects: {
-      getProjects:       getProjects,
-      getProjectFull:    getProjectFull,
-      createProject:     createProject,
-      deleteProject:     deleteProject,
-      syncProject:       syncProject,
-      updateProjectMeta: updateProjectMeta,
-      syncBudgets:       syncBudgets,
-      syncCategories:    syncCategories
+      getProjects:         getProjects,
+      getProjectFull:      getProjectFull,
+      createProject:       createProject,
+      deleteProject:       deleteProject,
+      syncProject:         syncProject,
+      updateProjectMeta:   updateProjectMeta,
+      syncBudgets:         syncBudgets,
+      syncCategories:      syncCategories,
+      subscribeToProject:  subscribeToProject,
+      unsubscribeProject:  unsubscribeProject
     },
     files:   { uploadFile: uploadFile },
     members: {
