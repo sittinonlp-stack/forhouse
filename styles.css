@@ -2232,14 +2232,24 @@ table.data tfoot td {
     print-color-adjust: exact;
   }
 
-  /* When printing the project summary modal, hide everything except the modal content */
-  body.printing-summary > *:not(.modal-backdrop) { display: none !important; }
+  /* When printing the project summary modal, hide everything except the modal content.
+     Modal is nested inside #root, so we use visibility to hide all then re-show only
+     the modal-backdrop and its descendants. */
+  body.printing-summary * { visibility: hidden !important; }
+  body.printing-summary .modal-backdrop,
+  body.printing-summary .modal-backdrop * { visibility: visible !important; }
   body.printing-summary .modal-backdrop {
-    position: static !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: auto !important;
     background: white !important;
     padding: 0 !important;
+    margin: 0 !important;
     overflow: visible !important;
     display: block !important;
+    z-index: 9999 !important;
   }
   body.printing-summary .modal {
     position: static !important;
@@ -2251,13 +2261,17 @@ table.data tfoot td {
     overflow: visible !important;
     background: white !important;
     color: #000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
   body.printing-summary .modal-head,
-  body.printing-summary .modal-foot { display: none !important; }
+  body.printing-summary .modal-head * { visibility: hidden !important; display: none !important; }
+  body.printing-summary .modal-foot,
+  body.printing-summary .modal-foot * { visibility: hidden !important; display: none !important; }
   body.printing-summary .modal-body {
     max-height: none !important;
     overflow: visible !important;
     padding: 0 !important;
   }
-  body.printing-summary #summary-print-area .summary-group > button + div { display: block !important; }
+  @page { margin: 12mm; }
 }
