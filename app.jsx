@@ -311,6 +311,10 @@ function App() {
     };
   }, [view.name, view.projectId, liveMode]);
 
+  // Track tx ids that were locally modified — protect from polling overwrites
+  // while DB save is in-flight
+  var pendingTxIds = useRef({});
+
   // ── Polling fallback (every 5s) — runs alongside realtime ─────
   // Guarantees eventual consistency even if Realtime is misconfigured
   useEffect(function() {
@@ -320,13 +324,13 @@ function App() {
 
     function tick() {
       if (stopped) return;
-      // Skip while tab is hidden — saves DB load
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       window.db.projects.getProjectTransactions(projectId)
         .then(function(serverTxs) {
           if (stopped) return;
           var serverIds = {};
           serverTxs.forEach(function(t) { serverIds[t.id] = t; });
+          var now = Date.now();
           setProjects(function(arr) {
             return arr.map(function(p) {
               if (p.id !== projectId) return p;
@@ -334,14 +338,20 @@ function App() {
               var localIds = {};
               localTxs.forEach(function(t) { localIds[t.id] = t; });
 
-              // Merge: server is authoritative for items it has; keep local-only
-              // items (very recent optimistic inserts not yet visible to query)
-              var merged = serverTxs.map(function(s) { return s; });
+              // Build merged list: for each server tx, prefer local version
+              // if the local tx was modified within the last 8 seconds
+              // (DB save may not have landed yet — don't overwrite local edits)
+              var merged = serverTxs.map(function(s) {
+                var pendingTs = pendingTxIds.current[s.id];
+                if (pendingTs && (now - pendingTs) < 8000 && localIds[s.id]) {
+                  return localIds[s.id];
+                }
+                return s;
+              });
               localTxs.forEach(function(l) {
                 if (!serverIds[l.id]) merged.push(l);
               });
 
-              // Only replace if anything actually changed (avoid useless re-renders)
               if (JSON.stringify(merged) === JSON.stringify(localTxs)) return p;
               return Object.assign({}, p, { transactions: merged });
             });
@@ -358,10 +368,23 @@ function App() {
   var updateProject = useCallback(function(np) {
     var oldP = projects.find(function(p) { return p.id === np.id; });
     setProjects(function(arr) { return arr.map(function(p) { return p.id === np.id ? np : p; }); });
+    // Mark any new/changed tx ids so polling won't overwrite them
+    var nowTs = Date.now();
+    var oldMap = {};
+    (oldP && oldP.transactions || []).forEach(function(t) { oldMap[t.id] = t; });
+    (np.transactions || []).forEach(function(t) {
+      if (!oldMap[t.id] || JSON.stringify(oldMap[t.id]) !== JSON.stringify(t)) {
+        pendingTxIds.current[t.id] = nowTs;
+      }
+    });
     if (liveMode && _dbReady && user) {
       window.db.projects.syncProject(oldP, np, user.id)
+        .then(function() {
+          // Clear pending markers — DB has the latest
+          (np.transactions || []).forEach(function(t) { delete pendingTxIds.current[t.id]; });
+        })
         .catch(function(err) {
-          console.error('Sync error:', err);
+          console.error('[sync] error:', err);
           setSyncError('บันทึกไม่สำเร็จ: ' + (err.message || err));
           setTimeout(function() { setSyncError(''); }, 5000);
         });

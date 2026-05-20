@@ -77,6 +77,9 @@
   }
 
   function mapIncomeRow(row) {
+    if (!('deduction_pct' in row)) {
+      console.warn('[db] mapIncomeRow: row missing deduction_pct column — migration 009 may not be applied. Row keys:', Object.keys(row));
+    }
     return {
       id:            row.id,
       kind:          'income',
@@ -90,6 +93,8 @@
       vendor:        row.vendor || '',
       attachment:    row.attachment_url || null,
       taxInvoiceUrl: row.tax_invoice_url || '',
+      deductionPct:  Number(row.deduction_pct || 0),
+      deductionNote: row.deduction_note || '',
       _dbSource:     'income'
     };
   }
@@ -152,7 +157,7 @@
   // ─────────────────────────────────────────────
 
   function incomeToRow(tx, projectId, userId) {
-    return {
+    var row = {
       id:              tx.id,
       project_id:      projectId,
       date:            tx.date,
@@ -165,8 +170,12 @@
       vendor:          tx.vendor || '',
       attachment_url:  tx.attachment || null,
       tax_invoice_url: tx.taxInvoiceUrl || null,
+      deduction_pct:   tx.deductionPct || 0,
+      deduction_note:  tx.deductionNote || '',
       created_by:      userId || null
     };
+    console.log('[db] incomeToRow → deduction_pct=' + row.deduction_pct + ', tx.deductionPct=' + tx.deductionPct, row);
+    return row;
   }
 
   function poToRow(po, projectId, userId) {
