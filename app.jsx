@@ -386,7 +386,7 @@ function App() {
         .catch(function(err) {
           console.error('[sync] error:', err);
           setSyncError('บันทึกไม่สำเร็จ: ' + (err.message || err));
-          setTimeout(function() { setSyncError(''); }, 5000);
+          setTimeout(function() { setSyncError(''); }, 12000);
         });
     }
   }, [projects, user, liveMode]);

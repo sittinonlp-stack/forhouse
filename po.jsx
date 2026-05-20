@@ -76,7 +76,7 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
   const isEdit = !!initial;
   const [kind, setKind] = useState(initial ? initial.kind : (defaultKind || 'material'));
   const [date, setDate] = useState(initial ? initial.date : today);
-  const [code, setCode] = useState(initial ? initial.code : ('PO-' + String(Date.now()).slice(-6)));
+  const [code, setCode] = useState(initial ? initial.code : ('PO-' + genId().split('-')[0].toUpperCase()));
   const [vendor, setVendor] = useState(initial ? initial.vendor || '' : '');
   const [notes, setNotes] = useState(initial ? initial.description || '' : '');
   const [images, setImages] = useState(initial && Array.isArray(initial.images) ? initial.images.slice() : []);
@@ -191,7 +191,7 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
   const depositAmt = isMaterialOrMachine ? (parseFloat(String(deposit.amount).replace(/,/g,'')) || 0) : 0;
   const grandTotal = subtotal + vatAmt - whtAmt - retAmt - advAmt;
 
-  const valid = items.length > 0 && items.every(it => it.category && it.description.trim() && it.qty > 0 && it.unitPrice > 0) && vendor.trim();
+  const valid = items.length > 0 && items.every(it => it.category && it.description.trim() && it.qty > 0 && it.unitPrice > 0);
 
   const buildPO = (status) => ({
     id: initial ? initial.id : genId(),
@@ -252,6 +252,11 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
       wide
       footer={<>
         <button className="btn ghost" onClick={onClose}>ยกเลิก</button>
+        {!valid ? (
+          <span style={{fontSize:'12px', color:'var(--warn-bright)', alignSelf:'center'}}>
+            <Icon name="warn" size={12}/> กรอกรายละเอียดสินค้า/งาน และราคา/หน่วยให้ครบก่อนบันทึก
+          </span>
+        ) : null}
         {needsApproval ? (
           <>
             {!isEdit || initial.status === 'draft' || initial.status === 'rejected' ? (
@@ -291,7 +296,7 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
           <input className="input-base mono" value={code} onChange={e => setCode(e.target.value)}/>
         </div>
         <div className="field full">
-          <label>คู่ค้า / ผู้รับเงิน <span className="req">*</span> {isLaborOrSub && vendorHistory.length > 0 ? <Badge tone="info">มีประวัติ {vendorHistory.length} รายการ</Badge> : null}</label>
+          <label>คู่ค้า / ผู้รับเงิน {isLaborOrSub && vendorHistory.length > 0 ? <Badge tone="info">มีประวัติ {vendorHistory.length} รายการ</Badge> : null}</label>
           <input className="input-base" placeholder="ชื่อร้าน / ผู้รับเหมา / ทีมงาน" value={vendor} onChange={e => setVendor(e.target.value)}/>
         </div>
       </div>
