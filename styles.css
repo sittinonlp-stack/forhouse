@@ -2231,4 +2231,33 @@ table.data tfoot td {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+
+  /* When printing the project summary modal, hide everything except the modal content */
+  body.printing-summary > *:not(.modal-backdrop) { display: none !important; }
+  body.printing-summary .modal-backdrop {
+    position: static !important;
+    background: white !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+  body.printing-summary .modal {
+    position: static !important;
+    box-shadow: none !important;
+    border: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: white !important;
+    color: #000 !important;
+  }
+  body.printing-summary .modal-head,
+  body.printing-summary .modal-foot { display: none !important; }
+  body.printing-summary .modal-body {
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+  body.printing-summary #summary-print-area .summary-group > button + div { display: block !important; }
 }

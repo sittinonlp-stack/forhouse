@@ -2521,7 +2521,15 @@ function ProjectSummaryReport({ project, agg, onClose }) {
   const expenseTotal = Object.values(expenseGroups).reduce((s, g) => s + g.total, 0);
   const profit = incomeNet - expenseTotal;
 
-  const onPrint = () => window.print();
+  const onPrint = () => {
+    document.body.classList.add('printing-summary');
+    const cleanup = () => {
+      document.body.classList.remove('printing-summary');
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+    window.print();
+  };
 
   const onExportCSV = () => {
     const rows = [['ประเภท','หมวดหลัก','หมวดย่อย','วันที่','รายละเอียด','คู่ค้า/เจ้าของงาน','จำนวน']];
