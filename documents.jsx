@@ -135,11 +135,16 @@ function DocumentModal({ project, po, kind, onClose }) {
   };
 
   const printDoc = () => {
-    // Save any contentEditable changes happen automatically — just print
+    document.body.classList.add('printing-doc');
+    const cleanup = () => {
+      document.body.classList.remove('printing-doc');
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
     window.print();
   };
 
-  const dlPDF = () => window.print();
+  const dlPDF = () => printDoc();
 
   if (showSettings) {
     return (

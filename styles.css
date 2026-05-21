@@ -2160,24 +2160,38 @@ table.data tfoot td {
   height: 1px;
 }
 
-/* Print only the doc area */
+/* Print only the doc-print-area — isolation via body.printing-doc class */
 @media print {
-  body { background: white !important; }
-  .modal-backdrop {
-    position: static !important;
+  body.printing-doc * { visibility: hidden !important; }
+  body.printing-doc .doc-print-area,
+  body.printing-doc .doc-print-area * { visibility: visible !important; }
+  body.printing-doc .doc-print-area {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
     background: white !important;
-    backdrop-filter: none !important;
-    padding: 0 !important;
     overflow: visible !important;
+    z-index: 9999 !important;
   }
-  .modal { border: none !important; box-shadow: none !important; max-width: 100% !important; width: 100% !important; background: white !important; animation: none !important; }
-  .modal-head, .modal-foot { display: none !important; }
-  .modal-body { padding: 0 !important; max-height: none !important; overflow: visible !important; }
-  .doc-print-area { background: white; }
-  .doc-page { padding: 16mm 18mm; }
-  .doc-page, .doc-page * { color: #000 !important; }
-  /* Restore document table colors */
-  .doc-table th { background: #eee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body.printing-doc .doc-page { padding: 16mm 18mm; }
+  body.printing-doc .doc-page * { color: #000 !important; }
+  body.printing-doc .doc-editable,
+  body.printing-doc .doc-editable:hover,
+  body.printing-doc .doc-editable:focus {
+    border-bottom-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  body.printing-doc .doc-table th {
+    background: #eee !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  body.printing-doc .doc-template-modern .doc-head-row::before {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 }
 
 @keyframes fh-toast-slide {
