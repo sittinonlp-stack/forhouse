@@ -47,7 +47,11 @@
       transactions: [].concat(
         (incomes || []).map(mapIncomeRow),
         (pos    || []).map(mapPORow)
-      ).sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); }),
+      ).sort(function (a, b) {
+        var d = (b.date || '').localeCompare(a.date || '');
+        if (d !== 0) return d;
+        return ((b.createdAt || b.date) || '').localeCompare((a.createdAt || a.date) || '');
+      }),
       members: (members || []).map(function (m) {
         var p = m.profiles || {};
         return {
@@ -95,6 +99,7 @@
       taxInvoiceUrl: row.tax_invoice_url || '',
       deductionPct:  Number(row.deduction_pct || 0),
       deductionNote: row.deduction_note || '',
+      createdAt:     row.created_at || row.date,
       _dbSource:     'income'
     };
   }

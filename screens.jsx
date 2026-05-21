@@ -520,7 +520,10 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
 /* ===== Overview tab ===== */
 function OverviewTab({ project, agg, onOpenPO, onGoToCategories }) {
   const trend = useMemo(() => monthlyTrend(project.transactions), [project]);
-  const recent = useMemo(() => [...project.transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8), [project]);
+  const recent = useMemo(() => [...project.transactions].sort((a, b) => {
+    const d = b.date.localeCompare(a.date);
+    return d !== 0 ? d : (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || '');
+  }).slice(0, 8), [project]);
   // Pending-vs-paid totals for header alert
   const pendingTotal = agg.expensePending || 0;
 
@@ -810,7 +813,10 @@ function TransactionsTab({ kind, project, onAdd, onEdit, onDelete }) {
       .filter(t => !from || t.date >= from)
       .filter(t => !to || t.date <= to)
       .filter(t => !ql || (t.description.toLowerCase().includes(ql) || (t.vendor || '').toLowerCase().includes(ql) || t.category.toLowerCase().includes(ql)))
-      .sort((a, b) => b.date.localeCompare(a.date));
+      .sort((a, b) => {
+        const d = b.date.localeCompare(a.date);
+        return d !== 0 ? d : (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || '');
+      });
   }, [project, kind, q, cat, from, to]);
 
   const total = useMemo(() => filtered.reduce((s, t) => s + t.amount, 0), [filtered]);

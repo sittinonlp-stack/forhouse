@@ -1122,7 +1122,10 @@ function PurchaseOrdersTab({ kind, project, agg, onAdd, onOpen }) {
         const items = getPOItems(po);
         return items.some(it => it.description.toLowerCase().includes(ql) || it.category.toLowerCase().includes(ql));
       })
-      .sort((a, b) => b.date.localeCompare(a.date));
+      .sort((a, b) => {
+        const d = b.date.localeCompare(a.date);
+        return d !== 0 ? d : (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || '');
+      });
   }, [allKindPOs, q, statusFilter, catFilter, from, to]);
 
   const counts = agg.statusCountByKind[kind] || { draft:0, pending:0, approved:0, paid:0, rejected:0 };
