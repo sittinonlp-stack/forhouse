@@ -120,15 +120,21 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
   const [wht, setWht] = useState(initial ? initial.withholding || 0 : 0);
   const [taxInvoiceUrl, setTaxInvoiceUrl] = useState(initial ? (initial.taxInvoiceUrl || '') : '');
   const [items, setItems] = useState(() => {
-    if (initial) return getPOItems(initial).map(it => ({ ...it }));
-    return [{ id: genId(), category: (project.categories[defaultKind || 'material'] || [])[0] || '', description: '', qty: 1, unit: 'ชิ้น', unitPrice: 0, amount: 0 }];
+    if (initial) return getPOItems(initial).map(it => ({
+      ...it,
+      qty:       it.qty       ? formatNumberInput(String(it.qty))       : '',
+      unitPrice: it.unitPrice ? formatNumberInput(String(it.unitPrice)) : ''
+    }));
+    return [{ id: genId(), category: (project.categories[defaultKind || 'material'] || [])[0] || '', description: '', qty: '1', unit: 'ชิ้น', unitPrice: '', amount: 0 }];
   });
 
   // Material/Machine: เงินประกันสินค้า/เครื่องจักร
-  const [deposit, setDeposit] = useState(initial && initial.deposit ? { ...initial.deposit } : { amount: 0, note: '', status: 'pending' });
+  const [deposit, setDeposit] = useState(initial && initial.deposit
+    ? { ...initial.deposit, amount: initial.deposit.amount ? formatNumberInput(String(initial.deposit.amount)) : '' }
+    : { amount: '', note: '', status: 'pending' });
   // Labor/Subcontract: หักประกันผลงาน + หักเบิกล่วงหน้า
-  const [retentionAmount, setRetentionAmount] = useState(initial ? (initial.retentionAmount || 0) : 0);
-  const [advanceDeduct, setAdvanceDeduct] = useState(initial ? (initial.advanceDeduct || 0) : 0);
+  const [retentionAmount, setRetentionAmount] = useState(initial && initial.retentionAmount ? formatNumberInput(String(initial.retentionAmount)) : '');
+  const [advanceDeduct,   setAdvanceDeduct]   = useState(initial && initial.advanceDeduct   ? formatNumberInput(String(initial.advanceDeduct))   : '');
   const [showHistory, setShowHistory] = useState(false);
 
   const isMaterialOrMachine = kind === 'material' || kind === 'machine';
@@ -155,17 +161,19 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
       if (it.id !== id) return it;
       let v = raw;
       if (field === 'qty' || field === 'unitPrice') {
-        v = parseFloat(String(raw).replace(/,/g, '')) || 0;
+        v = formatNumberInput(raw);
       }
       const next = { ...it, [field]: v };
-      next.amount = (next.qty || 0) * (next.unitPrice || 0);
+      const q  = parseNumberInput(next.qty);
+      const up = parseNumberInput(next.unitPrice);
+      next.amount = q * up;
       return next;
     }));
   };
 
   const addItem = () => {
     const list = project.categories[kind] || [];
-    setItems(its => [...its, { id: genId(), category: list[0] || '', description: '', qty: 1, unit: 'ชิ้น', unitPrice: 0, amount: 0 }]);
+    setItems(its => [...its, { id: genId(), category: list[0] || '', description: '', qty: '1', unit: 'ชิ้น', unitPrice: '', amount: 0 }]);
   };
   const removeItem = (id) => setItems(its => its.length > 1 ? its.filter(it => it.id !== id) : its);
 
@@ -191,7 +199,7 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
   const depositAmt = isMaterialOrMachine ? (parseFloat(String(deposit.amount).replace(/,/g,'')) || 0) : 0;
   const grandTotal = subtotal + vatAmt - whtAmt - retAmt - advAmt;
 
-  const valid = items.length > 0 && items.every(it => it.category && it.description.trim() && it.qty > 0 && it.unitPrice > 0);
+  const valid = items.length > 0 && items.every(it => it.category && it.description.trim() && parseNumberInput(it.qty) > 0 && parseNumberInput(it.unitPrice) > 0);
 
   const buildPO = (status) => ({
     id: initial ? initial.id : genId(),
@@ -205,9 +213,9 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
       id: it.id,
       category: it.category,
       description: it.description.trim(),
-      qty: Number(it.qty),
+      qty: parseNumberInput(it.qty),
       unit: it.unit || 'ชิ้น',
-      unitPrice: Number(it.unitPrice),
+      unitPrice: parseNumberInput(it.unitPrice),
       amount: Number(it.amount)
     })),
     amount: grandTotal,
@@ -471,7 +479,7 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
               <div className="with-suffix">
                 <input className="input-base num-input" inputMode="decimal" placeholder="0"
                   value={deposit.amount || ''}
-                  onChange={e => setDeposit({...deposit, amount: e.target.value.replace(/[^\d.,]/g,'')})}
+                  onChange={e => setDeposit({...deposit, amount: formatNumberInput(e.target.value)})}
                   style={{textAlign:'right'}}/>
                 <span className="suffix">บาท</span>
               </div>
@@ -501,7 +509,7 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
               <div className="with-suffix">
                 <input className="input-base num-input" inputMode="decimal" placeholder="0"
                   value={retentionAmount || ''}
-                  onChange={e => setRetentionAmount(e.target.value.replace(/[^\d.,]/g,''))}
+                  onChange={e => setRetentionAmount(formatNumberInput(e.target.value))}
                   style={{textAlign:'right'}}/>
                 <span className="suffix">บาท</span>
               </div>
@@ -512,7 +520,7 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
               <div className="with-suffix">
                 <input className="input-base num-input" inputMode="decimal" placeholder="0"
                   value={advanceDeduct || ''}
-                  onChange={e => setAdvanceDeduct(e.target.value.replace(/[^\d.,]/g,''))}
+                  onChange={e => setAdvanceDeduct(formatNumberInput(e.target.value))}
                   style={{textAlign:'right'}}/>
                 <span className="suffix">บาท</span>
               </div>

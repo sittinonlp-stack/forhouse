@@ -153,7 +153,7 @@ function IncomePlanEditModal({ project, initial, onClose, onSubmit }) {
   const isEdit = !!initial;
   const [label, setLabel] = useState(initial ? initial.label : '');
   const [dueDate, setDueDate] = useState(initial ? initial.dueDate : new Date().toISOString().slice(0, 10));
-  const [plannedAmount, setPlannedAmount] = useState(initial ? String(initial.plannedAmount) : '');
+  const [plannedAmount, setPlannedAmount] = useState(initial && initial.plannedAmount ? formatNumberInput(String(initial.plannedAmount)) : '');
   const [note, setNote] = useState(initial ? initial.note || '' : '');
   // Free-form sub-details (bullet list) — add/remove as needed
   const [details, setDetails] = useState(() => {
@@ -231,7 +231,7 @@ function IncomePlanEditModal({ project, initial, onClose, onSubmit }) {
           <label>ยอดที่วางแผนรับ <span className="req">*</span></label>
           <div className="with-suffix">
             <input className="input-base num-input" inputMode="decimal" placeholder="0"
-              value={plannedAmount} onChange={e => setPlannedAmount(e.target.value.replace(/[^\d.,]/g, ''))}
+              value={plannedAmount} onChange={e => setPlannedAmount(formatNumberInput(e.target.value))}
               style={{textAlign:'right'}}/>
             <span className="suffix">บาท</span>
           </div>

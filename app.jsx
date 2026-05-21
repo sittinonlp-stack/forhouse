@@ -763,7 +763,7 @@ function NewProjectModal({ onClose, onSubmit }) {
           <label>มูลค่าสัญญา (บาท) <span className="req">*</span></label>
           <div className="with-suffix">
             <input className="input-base num-input" inputMode="decimal" placeholder="0"
-              value={contractValue} onChange={function(e){setContract(e.target.value.replace(/[^\d.,]/g,''));}}/>
+              value={contractValue} onChange={function(e){setContract(formatNumberInput(e.target.value));}}/>
             <span className="suffix">บาท</span>
           </div>
         </div>
@@ -798,7 +798,7 @@ function NewProjectModal({ onClose, onSubmit }) {
                   </label>
                   <div className="with-suffix">
                     <input className="input-base num-input" inputMode="decimal" placeholder="0"
-                      value={budgets[k]} onChange={function(e){setBudgets(Object.assign({},budgets,{[k]:e.target.value.replace(/[^\d.,]/g,'')}));}}/>
+                      value={budgets[k]} onChange={function(e){setBudgets(Object.assign({},budgets,{[k]:formatNumberInput(e.target.value)}));}}/>
                     <span className="suffix">บ.</span>
                   </div>
                 </div>

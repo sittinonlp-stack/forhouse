@@ -38,6 +38,35 @@
     return (prefix || 'id') + '_' + Math.random().toString(36).slice(2, 9);
   }
 
+  // ---------- Number input formatters (for money/cost inputs) ----------
+  // Live-format numeric input: adds thousand separators, supports one decimal point.
+  // Example: "1234567"     → "1,234,567"
+  //          "1234.56"     → "1,234.56"
+  //          "1,000.5"     → "1,000.5"
+  function formatNumberInput(raw) {
+    if (raw == null || raw === '') return '';
+    // Strip all chars except digits and dot
+    var s = String(raw).replace(/[^\d.]/g, '');
+    // Allow only one decimal point — keep the first, drop the rest
+    var firstDot = s.indexOf('.');
+    if (firstDot !== -1) {
+      s = s.slice(0, firstDot + 1) + s.slice(firstDot + 1).replace(/\./g, '');
+    }
+    var parts = s.split('.');
+    var intPart = parts[0];
+    if (intPart) {
+      intPart = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+    if (parts.length === 1) return intPart;
+    return intPart + '.' + parts[1];
+  }
+
+  // Parse a formatted number string back into a Number.
+  function parseNumberInput(s) {
+    if (s == null || s === '') return 0;
+    return parseFloat(String(s).replace(/,/g, '')) || 0;
+  }
+
   // UUID v4 — used for all IDs that are stored in Supabase (PO, income, items)
   function genId() {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -80,6 +109,8 @@
   window.formatDateLong = formatDateLong;
   window.uid = uid;
   window.genId = genId;
+  window.formatNumberInput = formatNumberInput;
+  window.parseNumberInput = parseNumberInput;
 
   // Category helpers: support both legacy string[] and {name, costPrice}[] formats
   function catName(c)  { return typeof c === 'string' ? c : (c && c.name) || ''; }

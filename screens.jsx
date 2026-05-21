@@ -1512,8 +1512,8 @@ function CategoriesTab({ project, onBulkSave, currentRole }) {
                               {canEdit ? (
                                 <div className="with-suffix" style={{marginTop:'2px'}}>
                                   <input className="input-base num-input mono" inputMode="decimal" placeholder="0"
-                                    value={cost === 0 ? '' : cost}
-                                    onChange={e => setCost(kind, name, parseFloat(String(e.target.value).replace(/,/g,'')) || 0)}
+                                    value={cost === 0 ? '' : formatNumberInput(String(cost))}
+                                    onChange={e => setCost(kind, name, parseNumberInput(formatNumberInput(e.target.value)))}
                                     style={{padding:'3px 6px', fontSize:'11.5px'}}/>
                                   <span className="suffix" style={{fontSize:'10px'}}>บ.</span>
                                 </div>
@@ -1590,7 +1590,7 @@ function TransactionModal({ mode, kind, project, initial, onClose, onSubmit }) {
   const [date, setDate] = useState(initial ? initial.date : today);
   const [cat, setCat] = useState(initial ? initial.category : (project.categories[kind] || [])[0] || '');
   const [desc, setDesc] = useState(initial ? initial.description : '');
-  const [amount, setAmount] = useState(initial ? String(initial.amount) : '');
+  const [amount, setAmount] = useState(initial && initial.amount ? formatNumberInput(String(initial.amount)) : '');
   const [vendor, setVendor] = useState(initial ? initial.vendor || '' : '');
   const [vat, setVat] = useState(initial ? !!initial.vat : false);
   const [vatIncluded, setVatIncluded] = useState(initial ? !!initial.vatIncluded : false);
@@ -1700,7 +1700,7 @@ function TransactionModal({ mode, kind, project, initial, onClose, onSubmit }) {
           <label>จำนวนเงิน (บาท) <span className="req">*</span></label>
           <div className="with-suffix">
             <input className="input-base num-input" inputMode="decimal" placeholder="0"
-              value={amount} onChange={e => setAmount(e.target.value.replace(/[^\d.,]/g, ''))}/>
+              value={amount} onChange={e => setAmount(formatNumberInput(e.target.value))}/>
             <span className="suffix">บาท</span>
           </div>
         </div>
