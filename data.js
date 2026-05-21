@@ -16,7 +16,7 @@
     if (opts.compact && abs >= 1e3) {
       return sign + (abs / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
     }
-    var s = Math.round(abs).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    var s = abs.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     return sign + s;
   }
 
