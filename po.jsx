@@ -704,7 +704,7 @@ function PODetailModal({ project, po, onClose, onEdit, onAction, onDelete }) {
   const showSubmit = status === 'draft' || status === 'rejected';
   const showPayment = status === 'approved';
   const editable = status === 'draft' || status === 'rejected' || status === 'pending';
-  const deletable = status === 'draft' || status === 'rejected' || status === 'pending';
+  const deletable = true;
   const isLaborOrSub = po.kind === 'labor' || po.kind === 'subcontract';
   const vendorHistory = useMemo(() => {
     if (!isLaborOrSub || !po.vendor) return [];
@@ -1078,7 +1078,7 @@ function PODetailModal({ project, po, onClose, onEdit, onAction, onDelete }) {
       <Confirm
         open={confirmAction === 'delete'}
         title="ยืนยันการลบใบสั่งซื้อ"
-        message={`ลบใบสั่งซื้อ ${po.code} ออกจากระบบ การกระทำนี้ไม่สามารถย้อนกลับได้`}
+        message={`ลบ${po.code} ออกจากโครงการ${status === 'paid' || status === 'approved' ? ` — ยอดเงิน ${formatBaht(po.amount)} บ. จะถูกตัดออกจากบัญชีรายจ่ายด้วย` : ''} การกระทำนี้ไม่สามารถย้อนกลับได้`}
         danger
         onClose={() => setConfirmAction(null)}
         onConfirm={() => { onDelete(po.id); onClose(); }}
