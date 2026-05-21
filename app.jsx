@@ -419,7 +419,7 @@ function App() {
       .catch(function(err) {
         console.error('Create project error:', err);
         setSyncError('สร้างโครงการไม่สำเร็จ: ' + (err.message || err));
-        setTimeout(function() { setSyncError(''); }, 5000);
+        setTimeout(function() { setSyncError(''); }, 12000);
       });
   }, [user, liveMode]);
 
@@ -713,7 +713,7 @@ function RoleSwitcher({ currentRole, onChange }) {
 /* ========== New project modal ========== */
 function NewProjectModal({ onClose, onSubmit }) {
   var [name, setName]              = useState('');
-  var [code, setCode]              = useState('FH-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random()*900)+100));
+  var [code, setCode]              = useState('FH-' + new Date().getFullYear() + '-' + genId().split('-')[0].toUpperCase().slice(0,6));
   var [client, setClient]          = useState('');
   var [location, setLocation]      = useState('');
   var [contractValue, setContract] = useState('');
@@ -747,6 +747,11 @@ function NewProjectModal({ onClose, onSubmit }) {
     <Modal open={true} onClose={onClose} title="เพิ่มโครงการใหม่" wide
       footer={<>
         <button className="btn ghost" onClick={onClose}>ยกเลิก</button>
+        {!can ? (
+          <span style={{fontSize:'12px', color:'var(--warn-bright)', alignSelf:'center'}}>
+            <Icon name="warn" size={12}/> กรอก{!name.trim() ? 'ชื่อโครงการ' : ''}{!name.trim() && !(cv > 0) ? ' และ' : ''}{!(cv > 0) ? 'มูลค่าสัญญา' : ''}ก่อนสร้าง
+          </span>
+        ) : null}
         <button className="btn primary" disabled={!can} onClick={submit}><Icon name="check" size={14}/> สร้างโครงการ</button>
       </>}>
       <div className="form-grid">
