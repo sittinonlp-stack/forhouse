@@ -139,8 +139,8 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
 
   const isMaterialOrMachine = kind === 'material' || kind === 'machine';
   const isLaborOrSub = kind === 'labor' || kind === 'subcontract';
-  // ใหม่: ใช้ workflow PO + อนุมัติเฉพาะแรงงาน/รับเหมาช่วง ส่วนอื่นบันทึกเป็นรายจ่ายตรง
-  const needsApproval = isLaborOrSub;
+  // ทุกประเภทบันทึกเป็นรายจ่ายโดยตรง ไม่ต้องผ่านขั้นตอนอนุมัติ
+  const needsApproval = false;
 
   // when kind changes, validate item categories + reset kind-specific fields
   useEffect(() => {
@@ -1097,7 +1097,7 @@ function PurchaseOrdersTab({ kind, project, agg, onAdd, onOpen }) {
   const [catFilter, setCatFilter] = useState('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const needsApproval = kind === 'labor' || kind === 'subcontract';
+  const needsApproval = false;
 
   const allKindPOs = useMemo(() =>
     project.transactions.filter(t => t.kind === kind),
