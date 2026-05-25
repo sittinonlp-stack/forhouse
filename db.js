@@ -64,7 +64,8 @@
           email:       p.email || '',
           isOwner:     m.role === 'owner'
         };
-      })
+      }),
+      workers: Array.isArray(row.workers) ? row.workers : []
     };
   }
 
@@ -444,6 +445,7 @@
       end_date:       proj.endDate   || null,
       status:         proj.status,
       progress:       proj.progress,
+      workers:        Array.isArray(proj.workers) ? proj.workers : [],
       updated_at:     new Date().toISOString()
     }).eq('id', proj.id)
       .then(function (res) { if (res.error) throw res.error; });
@@ -556,7 +558,8 @@
     // Project meta
     var metaFields = ['code','name','location','client','contractValue','startDate','endDate','status','progress'];
     var metaChanged = metaFields.some(function (f) { return oldProject[f] !== newProject[f]; });
-    if (metaChanged) ops.push(updateProjectMeta(newProject));
+    var workersChanged = JSON.stringify(oldProject.workers || []) !== JSON.stringify(newProject.workers || []);
+    if (metaChanged || workersChanged) ops.push(updateProjectMeta(newProject));
 
     // Budgets
     if (JSON.stringify(oldProject.budgets) !== JSON.stringify(newProject.budgets)) {

@@ -309,6 +309,29 @@ function POEditorModal({ project, initial, defaultKind, onClose, onSubmit }) {
         </div>
       </div>
 
+      {/* Worker quick-pick — แสดงเมื่อเป็นประเภทค่าแรงงาน/รับเหมาช่วง และมีทีมงานภาคสนาม */}
+      {isLaborOrSub && (project.workers || []).filter(w => w.type === kind || w.type === 'both').length > 0 ? (
+        <div className="worker-picker mb-16">
+          <div className="worker-picker-label">
+            <Icon name="users" size={12}/> เลือกจากทีมงานภาคสนาม
+          </div>
+          <div className="worker-chips">
+            {(project.workers || [])
+              .filter(w => w.type === kind || w.type === 'both')
+              .map(w => (
+                <button key={w.id} type="button"
+                  className={'worker-chip' + (vendor === w.name ? ' active' : '')}
+                  onClick={() => setVendor(w.name)}>
+                  <span className="worker-chip-name">{w.name}</span>
+                  {w.skill ? <span className="worker-chip-skill">{w.skill}</span> : null}
+                  {w.ratePerDay > 0 ? <span className="worker-chip-rate">{formatBaht(w.ratePerDay)}/วัน</span> : null}
+                </button>
+              ))
+            }
+          </div>
+        </div>
+      ) : null}
+
       {/* Vendor withdrawal history (labor/subcontract) */}
       {isLaborOrSub && vendor.trim() && vendorHistory.length > 0 ? (
         <div className="vendor-history mb-16">
