@@ -727,6 +727,11 @@ function App() {
         </aside>
       ) : null}
 
+      {/* Mobile sidebar overlay — tap to close */}
+      {sidebarOpen && theme === 'a' ? (
+        <div className="sidebar-overlay" onClick={function(){setSidebarOpen(false);}} aria-hidden="true"/>
+      ) : null}
+
       <div className="main">
         {theme === 'a' ? (
           <header className="topbar">
