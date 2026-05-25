@@ -289,7 +289,7 @@
   }
 
   // ─────────────────────────────────────────────
-  // PROJECTS — list (no transactions for dashboard)
+  // PROJECTS — list + all transactions (for dashboard summaries)
   // ─────────────────────────────────────────────
 
   function getProjects() {
@@ -298,36 +298,44 @@
       .then(function (res) {
         if (res.error) throw res.error;
         projects = res.data || [];
-        if (!projects.length) return [null, null, null];
+        if (!projects.length) return [null, null, null, null];
         ids = projects.map(function (p) { return p.id; });
         return Promise.all([
           client.from('project_budgets').select('*').in('project_id', ids),
           client.from('categories').select('*').in('project_id', ids).order('sort_order'),
-          client.from('purchase_orders').select('project_id, status, kind').in('project_id', ids).eq('status', 'pending')
+          // Fetch all income records for all projects (no items needed for summary)
+          client.from('income_records').select('*').in('project_id', ids).order('date', { ascending: false }),
+          // Fetch all POs (no po_items — amounts already stored on PO row)
+          client.from('purchase_orders').select('*').in('project_id', ids).order('date', { ascending: false })
         ]);
       })
       .then(function (results) {
         if (!results) return [];
         var budgetsAll = (results[0] && results[0].data) || [];
         var catsAll    = (results[1] && results[1].data) || [];
-        var pendingPOs = (results[2] && results[2].data) || [];
-        // count pending POs per project + per kind
+        var incomesAll = (results[2] && results[2].data) || [];
+        var posAll     = (results[3] && results[3].data) || [];
+
+        // Compute pending counts from full PO list
         var pendingMap = {};
         var pendingByKindMap = {};
-        pendingPOs.forEach(function (r) {
+        posAll.forEach(function (r) {
+          if (r.status !== 'pending') return;
           pendingMap[r.project_id] = (pendingMap[r.project_id] || 0) + 1;
           if (!pendingByKindMap[r.project_id]) pendingByKindMap[r.project_id] = {};
           pendingByKindMap[r.project_id][r.kind] = (pendingByKindMap[r.project_id][r.kind] || 0) + 1;
         });
+
         return projects.map(function (p) {
           var proj = mapProjectRow(
             p,
             budgetsAll.filter(function (b) { return b.project_id === p.id; }),
             catsAll.filter(function (c) { return c.project_id === p.id; }),
-            [], []
+            incomesAll.filter(function (i) { return i.project_id === p.id; }),
+            posAll.filter(function (po) { return po.project_id === p.id; })
           );
-          proj.pendingPOCount = pendingMap[p.id] || 0;
-          proj.pendingPOByKind = pendingByKindMap[p.id] || {};
+          proj.pendingPOCount   = pendingMap[p.id] || 0;
+          proj.pendingPOByKind  = pendingByKindMap[p.id] || {};
           return proj;
         });
       });
