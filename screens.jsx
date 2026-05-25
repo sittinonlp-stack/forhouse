@@ -213,7 +213,7 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
 /* ============================================================
    PROJECT VIEW
    ============================================================ */
-function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, currentRole }) {
+function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, currentRole, presets }) {
   const [tab, setTab] = useState('overview');
   const role = ROLES[currentRole] || ROLES.staff;
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
@@ -288,6 +288,21 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
     }
   }, [project, onUpdate]);
 
+  const updateCategories = useCallback((kind, cats) => {
+    const np = { ...project, categories: { ...project.categories, [kind]: cats } };
+    onUpdate(np);
+  }, [project, onUpdate]);
+
+  const updateCategoryCost = useCallback((kind, name, cost) => {
+    const all = { ...(project.categoryCosts || {}) };
+    all[kind] = { ...(all[kind] || {}), [name]: Number(cost) || 0 };
+    onUpdate({ ...project, categoryCosts: all });
+  }, [project, onUpdate]);
+
+  const bulkSaveCategories = useCallback((newCats, newCosts) => {
+    onUpdate({ ...project, categories: newCats, categoryCosts: newCosts });
+  }, [project, onUpdate]);
+
   const TABS = [
     { key: 'overview', label: 'ภาพรวม', icon: 'overview' },
     { key: 'income', label: 'รายรับงวดงาน', icon: 'income' },
@@ -297,11 +312,12 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
     { key: 'machine', label: 'เครื่องจักร', icon: 'truck' },
     { key: 'other', label: 'อื่นๆ', icon: 'dots' },
     { key: 'team', label: 'ทีมงาน', icon: 'users' },
-    { key: 'plan', label: 'แผนรายรับ', icon: 'document' }
+    { key: 'plan', label: 'แผนรายรับ', icon: 'document' },
+    { key: 'categories', label: 'จัดการหมวดหมู่', icon: 'tags' }
   ];
 
   const counts = useMemo(() => {
-    const c = { overview: 0 };
+    const c = { overview: 0, categories: 0 };
     for (const k of ALL_KINDS) c[k] = 0;
     for (const t of project.transactions) c[t.kind] = (c[t.kind] || 0) + 1;
     return c;
@@ -334,7 +350,7 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
           ) : null}
           <button className="btn primary" onClick={() => {
             if (tab === 'income') setAddingIncome(true);
-            else if (tab === 'overview' || tab === 'team' || tab === 'plan') setPOEditor({ kind: 'material' });
+            else if (tab === 'overview' || tab === 'team' || tab === 'plan' || tab === 'categories') setPOEditor({ kind: 'material' });
             else setPOEditor({ kind: tab });
           }}>
             <Icon name="plus" size={16}/> {tab === 'income' ? 'เพิ่มรายรับ' : 'สร้างใบสั่งซื้อ'}
@@ -392,17 +408,19 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
         {TABS.map(t => (
           <button key={t.key} className={tab === t.key ? 'on' : ''} onClick={() => setTab(t.key)}>
             <Icon name={t.icon} size={15}/> {t.label}
-            {t.key !== 'overview' && t.key !== 'team' && t.key !== 'plan' ? <span className="count">{counts[t.key] || 0}</span> : null}
+            {t.key !== 'overview' && t.key !== 'team' && t.key !== 'plan' && t.key !== 'categories' ? <span className="count">{counts[t.key] || 0}</span> : null}
           </button>
         ))}
       </div>
 
       {tab === 'overview' ? (
-        <OverviewTab project={project} agg={agg} onOpenPO={(po) => setPODetail(po)}/>
+        <OverviewTab project={project} agg={agg} onOpenPO={(po) => setPODetail(po)} onGoToCategories={() => setTab('categories')}/>
       ) : tab === 'team' ? (
         <TeamTab project={project} onUpdate={onUpdate} currentRole={currentRole} onDeleteProject={() => setConfirmDeleteProject(true)}/>
       ) : tab === 'plan' ? (
         <IncomePlanTab project={project} onUpdate={onUpdate} currentRole={currentRole}/>
+      ) : tab === 'categories' ? (
+        <CategoriesTab project={project} onBulkSave={bulkSaveCategories} currentRole={currentRole} presets={presets || []}/>
       ) : tab === 'income' ? (
         <TransactionsTab
           kind={tab}
@@ -500,7 +518,7 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
 }
 
 /* ===== Overview tab ===== */
-function OverviewTab({ project, agg, onOpenPO }) {
+function OverviewTab({ project, agg, onOpenPO, onGoToCategories }) {
   const trend = useMemo(() => monthlyTrend(project.transactions), [project]);
   const recent = useMemo(() => [...project.transactions].sort((a, b) => {
     const d = b.date.localeCompare(a.date);
@@ -624,7 +642,11 @@ function OverviewTab({ project, agg, onOpenPO }) {
                   <div className="row gap-8" style={{flexWrap:'wrap'}}>
                     {totalCosts > 0 ? <Badge tone="info">ต้นทุนรวม {formatBaht(totalCosts, {compact:true})} บ.</Badge> : null}
                     {totalBudgetSet > 0 && totalBudgetSet !== totalCosts ? <Badge>งบโครงการ {formatBaht(totalBudgetSet, {compact:true})} บ.</Badge> : null}
-                    {!hasAnyData ? null : null}
+                    {!hasAnyData ? (
+                      <button className="btn sm primary" onClick={onGoToCategories} title="ไปตั้งราคาต้นทุนต่อหมวดย่อย">
+                        <Icon name="plus" size={12}/> ตั้งต้นทุนหมวดงาน
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 
@@ -665,7 +687,7 @@ function OverviewTab({ project, agg, onOpenPO }) {
                                 <span>{b - a >= 0 ? <>คงเหลือ {formatBaht(b - a)} บ.</> : <span style={{color:'var(--danger)'}}>เกิน {formatBaht(a - b)} บ.</span>}</span>
                               </>
                             ) : (
-                              <span className="dim">ยังไม่ตั้งต้นทุน</span>
+                              <span className="dim">ยังไม่ตั้งต้นทุน · <a onClick={onGoToCategories} style={{color:'var(--brand-bright)', cursor:'pointer', textDecoration:'underline'}}>ตั้งค่า</a></span>
                             )}
                           </div>
                           <Bar value={a} max={b} tone="auto" thin/>
@@ -1278,8 +1300,9 @@ function TeamTab({ project, onUpdate, currentRole, onDeleteProject }) {
 }
 
 /* ===== Categories tab ===== */
-function CategoriesTab({ project, onBulkSave, currentRole }) {
+function CategoriesTab({ project, onBulkSave, currentRole, presets }) {
   const canEdit = (ROLES[currentRole] || ROLES.staff).canManageCategories;
+  const presetList = Array.isArray(presets) ? presets : [];
 
   // Local draft state — changes are batched until user clicks Save
   const initialCats  = () => JSON.parse(JSON.stringify(project.categories  || {}));
@@ -1290,6 +1313,8 @@ function CategoriesTab({ project, onBulkSave, currentRole }) {
   const [editing, setEditing] = useState({ kind: null, oldName: '', newName: '' });
   const [saving,  setSaving]  = useState(false);
   const [savedAt, setSavedAt] = useState(null);
+  const [presetId,    setPresetId]    = useState('');
+  const [presetMode,  setPresetMode]  = useState('replace'); // 'replace' or 'merge'
 
   // Resync draft when the project comes back from the server (id change or new transactions)
   useEffect(() => {
@@ -1387,6 +1412,48 @@ function CategoriesTab({ project, onBulkSave, currentRole }) {
     }, 250);
   };
 
+  const applyPreset = () => {
+    const preset = presetList.find(p => p.id === presetId);
+    if (!preset) return;
+    const presetCats  = preset.categories     || {};
+    const presetCosts = preset.categoryCosts  || {};
+    if (presetMode === 'replace') {
+      // Replace: overwrite draft with preset (but keep existing cost prices for matching names)
+      const nextCats  = {};
+      const nextCosts = {};
+      ALL_KINDS.forEach(k => {
+        nextCats[k]  = Array.isArray(presetCats[k]) ? [...presetCats[k]] : [];
+        nextCosts[k] = {};
+        nextCats[k].forEach(name => {
+          // Prefer existing project cost, fall back to preset cost
+          const existing = (draftCosts[k] || {})[name];
+          const presetVal = (presetCosts[k] || {})[name];
+          if (existing && existing > 0) nextCosts[k][name] = existing;
+          else if (presetVal && presetVal > 0) nextCosts[k][name] = presetVal;
+        });
+      });
+      setDraftCats(nextCats);
+      setDraftCosts(nextCosts);
+    } else {
+      // Merge: add categories from preset that don't already exist
+      const nextCats  = JSON.parse(JSON.stringify(draftCats));
+      const nextCosts = JSON.parse(JSON.stringify(draftCosts));
+      ALL_KINDS.forEach(k => {
+        if (!nextCats[k])  nextCats[k]  = [];
+        if (!nextCosts[k]) nextCosts[k] = {};
+        (presetCats[k] || []).forEach(name => {
+          if (!nextCats[k].includes(name)) nextCats[k].push(name);
+          if (!nextCosts[k][name] && (presetCosts[k] || {})[name]) {
+            nextCosts[k][name] = (presetCosts[k] || {})[name];
+          }
+        });
+      });
+      setDraftCats(nextCats);
+      setDraftCosts(nextCosts);
+    }
+    if (window.notify) window.notify('นำเข้า preset "' + preset.name + '" แล้ว — กดบันทึกทั้งหมดเพื่อยืนยัน', 'info');
+  };
+
   return (
     <div>
       {canEdit ? (
@@ -1399,6 +1466,49 @@ function CategoriesTab({ project, onBulkSave, currentRole }) {
           <strong>ดูหมวดหมู่ย่อยเท่านั้น</strong> — เฉพาะผู้จัดการและผู้บริหารสามารถเพิ่ม แก้ไข หรือลบหมวดหมู่ได้
         </Alert>
       )}
+
+      {/* Preset picker */}
+      {canEdit ? (
+        <div className="card tight mb-16" style={{padding:'12px 14px', background:'var(--bg-1)'}}>
+          <div className="row" style={{alignItems:'center', flexWrap:'wrap', gap:'10px'}}>
+            <div style={{display:'flex', alignItems:'center', gap:'8px', minWidth:'180px'}}>
+              <Icon name="tags" size={14} style={{color:'var(--brand-bright)'}}/>
+              <strong style={{fontSize:'13px'}}>นำเข้าจาก Preset</strong>
+            </div>
+            <select className="input-base" value={presetId}
+              onChange={e => setPresetId(e.target.value)}
+              style={{flex:'1 1 200px', minWidth:'180px', padding:'6px 10px', fontSize:'13px'}}>
+              <option value="">— เลือก Preset —</option>
+              {presetList.map(p => {
+                const total = ALL_KINDS.reduce((s, k) => s + ((p.categories && p.categories[k]) || []).length, 0);
+                return (
+                  <option key={p.id} value={p.id}>{p.name} ({total} หมวด)</option>
+                );
+              })}
+            </select>
+            <div className="role-switcher" style={{minWidth:'200px'}}>
+              <button type="button" className={presetMode === 'replace' ? 'on' : ''}
+                onClick={() => setPresetMode('replace')}
+                style={{padding:'6px 10px', fontSize:'12px'}}>แทนที่</button>
+              <button type="button" className={presetMode === 'merge' ? 'on' : ''}
+                onClick={() => setPresetMode('merge')}
+                style={{padding:'6px 10px', fontSize:'12px'}}>รวม</button>
+            </div>
+            <button className="btn primary" disabled={!presetId} onClick={applyPreset}>
+              <Icon name="check" size={13}/> นำเข้า
+            </button>
+          </div>
+          {presetList.length === 0 ? (
+            <div className="dim" style={{fontSize:'11.5px', marginTop:'8px'}}>
+              ยังไม่มี preset · ไปที่ <strong>"หมวดหมู่งาน"</strong> ในแถบซ้ายมือเพื่อสร้าง preset
+            </div>
+          ) : (
+            <div className="dim" style={{fontSize:'11.5px', marginTop:'8px'}}>
+              <strong>แทนที่</strong> = เปลี่ยนหมวดหมู่ทั้งหมดเป็นของ preset · <strong>รวม</strong> = เพิ่มหมวดหมู่จาก preset โดยเก็บของเดิมไว้ · กรอกต้นทุนหลังนำเข้า
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {/* Save bar */}
       {canEdit ? (
@@ -1752,86 +1862,149 @@ function GlobalWorkersScreen({ workers, onUpdate, currentRole }) {
 }
 
 /* ============================================================
-   GLOBAL CATEGORIES SCREEN — หมวดหมู่งาน (ข้อมูลส่วนกลาง)
+   GLOBAL PRESETS SCREEN — หมวดหมู่งาน (Preset Library)
    ============================================================ */
-function GlobalCategoriesScreen({ categories, categoryCosts, onUpdate, currentRole }) {
+function GlobalPresetsScreen({ presets, onUpdate, currentRole }) {
   const canEdit = (ROLES[currentRole] || ROLES.staff).canManageCategories;
+  const presetList = Array.isArray(presets) ? presets : [];
 
-  const initialCats  = () => JSON.parse(JSON.stringify(categories  || {}));
-  const initialCosts = () => JSON.parse(JSON.stringify(categoryCosts || {}));
-  const [draftCats,  setDraftCats]  = useState(initialCats);
-  const [draftCosts, setDraftCosts] = useState(initialCosts);
-  const [adding,  setAdding]  = useState({ kind: null, name: '' });
-  const [editing, setEditing] = useState({ kind: null, oldName: '', newName: '' });
-  const [saving,  setSaving]  = useState(false);
-  const [savedAt, setSavedAt] = useState(null);
+  const [draft,        setDraft]        = useState(() => JSON.parse(JSON.stringify(presetList)));
+  const [activeId,     setActiveId]     = useState(presetList[0] ? presetList[0].id : null);
+  const [adding,       setAdding]       = useState({ kind: null, name: '' });
+  const [editing,      setEditing]      = useState({ kind: null, oldName: '', newName: '' });
+  const [renamingId,   setRenamingId]   = useState(null);
+  const [renamingName, setRenamingName] = useState('');
+  const [saving,       setSaving]       = useState(false);
 
-  // Resync when props change (e.g. loaded from DB)
+  // Resync when presets prop changes (e.g. loaded from DB)
   useEffect(() => {
-    setDraftCats(initialCats());
-    setDraftCosts(initialCosts());
-    setAdding({ kind: null, name: '' });
-    setEditing({ kind: null, oldName: '', newName: '' });
+    setDraft(JSON.parse(JSON.stringify(presetList)));
+    if (presetList.length > 0 && !presetList.find(p => p.id === activeId)) {
+      setActiveId(presetList[0].id);
+    } else if (presetList.length === 0) {
+      setActiveId(null);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(categories), JSON.stringify(categoryCosts)]);
+  }, [JSON.stringify(presets)]);
 
   const dirty = useMemo(() => (
-    JSON.stringify(draftCats)  !== JSON.stringify(categories  || {}) ||
-    JSON.stringify(draftCosts) !== JSON.stringify(categoryCosts || {})
-  ), [draftCats, draftCosts, categories, categoryCosts]);
+    JSON.stringify(draft) !== JSON.stringify(presetList)
+  ), [draft, presetList]);
+
+  const active = draft.find(p => p.id === activeId) || null;
+
+  const updateActive = (mutator) => {
+    setDraft(draft.map(p => p.id === activeId ? mutator(p) : p));
+  };
+
+  const addPreset = () => {
+    const id = genId();
+    const newP = {
+      id: id,
+      name: 'Preset ใหม่ ' + (draft.length + 1),
+      categories:    JSON.parse(JSON.stringify(window.DEFAULT_CATS)),
+      categoryCosts: {}
+    };
+    setDraft([...draft, newP]);
+    setActiveId(id);
+    setRenamingId(id);
+    setRenamingName(newP.name);
+  };
+
+  const duplicatePreset = (p) => {
+    const id = genId();
+    const copy = {
+      id: id,
+      name: p.name + ' (สำเนา)',
+      categories:    JSON.parse(JSON.stringify(p.categories    || {})),
+      categoryCosts: JSON.parse(JSON.stringify(p.categoryCosts || {}))
+    };
+    setDraft([...draft, copy]);
+    setActiveId(id);
+  };
+
+  const removePreset = (id) => {
+    if (!window.confirm('ลบ preset นี้?')) return;
+    const next = draft.filter(p => p.id !== id);
+    setDraft(next);
+    if (activeId === id) setActiveId(next[0] ? next[0].id : null);
+  };
+
+  const saveRename = () => {
+    const name = renamingName.trim();
+    if (!name) { setRenamingId(null); return; }
+    setDraft(draft.map(p => p.id === renamingId ? { ...p, name } : p));
+    setRenamingId(null);
+  };
 
   const addCat = (kind) => {
+    if (!active) return;
     const name = adding.name.trim();
     if (!name) return;
-    const list = draftCats[kind] || [];
+    const list = (active.categories || {})[kind] || [];
     if (list.includes(name)) { setAdding({kind:null, name:''}); return; }
-    setDraftCats({ ...draftCats, [kind]: [...list, name] });
+    updateActive(p => ({
+      ...p,
+      categories: { ...(p.categories || {}), [kind]: [...list, name] }
+    }));
     setAdding({ kind: null, name: '' });
   };
 
   const removeCat = (kind, name) => {
-    if (!window.confirm(`ลบหมวด "${name}" ออกจากรายการทั้งหมด?`)) return;
-    setDraftCats({ ...draftCats, [kind]: (draftCats[kind] || []).filter(c => c !== name) });
-    const nextCosts = { ...(draftCosts[kind] || {}) };
-    delete nextCosts[name];
-    setDraftCosts({ ...draftCosts, [kind]: nextCosts });
+    if (!active) return;
+    updateActive(p => {
+      const cats = { ...(p.categories || {}) };
+      cats[kind] = (cats[kind] || []).filter(c => c !== name);
+      const costs = { ...(p.categoryCosts || {}) };
+      const kindCosts = { ...(costs[kind] || {}) };
+      delete kindCosts[name];
+      costs[kind] = kindCosts;
+      return { ...p, categories: cats, categoryCosts: costs };
+    });
   };
 
   const saveEdit = () => {
+    if (!active) return;
     const newName = editing.newName.trim();
     if (!newName || newName === editing.oldName) { setEditing({kind:null, oldName:'', newName:''}); return; }
-    const list = (draftCats[editing.kind] || []).map(c => c === editing.oldName ? newName : c);
-    setDraftCats({ ...draftCats, [editing.kind]: list });
-    const kindCosts = { ...(draftCosts[editing.kind] || {}) };
-    if (Object.prototype.hasOwnProperty.call(kindCosts, editing.oldName)) {
-      kindCosts[newName] = kindCosts[editing.oldName];
-      delete kindCosts[editing.oldName];
-    }
-    setDraftCosts({ ...draftCosts, [editing.kind]: kindCosts });
+    updateActive(p => {
+      const cats  = { ...(p.categories || {}) };
+      const costs = { ...(p.categoryCosts || {}) };
+      cats[editing.kind] = (cats[editing.kind] || []).map(c => c === editing.oldName ? newName : c);
+      const kindCosts = { ...(costs[editing.kind] || {}) };
+      if (Object.prototype.hasOwnProperty.call(kindCosts, editing.oldName)) {
+        kindCosts[newName] = kindCosts[editing.oldName];
+        delete kindCosts[editing.oldName];
+      }
+      costs[editing.kind] = kindCosts;
+      return { ...p, categories: cats, categoryCosts: costs };
+    });
     setEditing({ kind: null, oldName: '', newName: '' });
   };
 
   const setCost = (kind, name, cost) => {
-    const kindCosts = { ...(draftCosts[kind] || {}), [name]: Number(cost) || 0 };
-    setDraftCosts({ ...draftCosts, [kind]: kindCosts });
+    if (!active) return;
+    updateActive(p => {
+      const costs = { ...(p.categoryCosts || {}) };
+      costs[kind] = { ...(costs[kind] || {}), [name]: Number(cost) || 0 };
+      return { ...p, categoryCosts: costs };
+    });
   };
 
   const resetDraft = () => {
-    setDraftCats(initialCats());
-    setDraftCosts(initialCosts());
+    setDraft(JSON.parse(JSON.stringify(presetList)));
     setAdding({ kind: null, name: '' });
     setEditing({ kind: null, oldName: '', newName: '' });
+    setRenamingId(null);
   };
 
   const saveAll = () => {
     if (!dirty || saving) return;
     setSaving(true);
-    onUpdate({ categories: draftCats, categoryCosts: draftCosts });
+    onUpdate(draft);
     setTimeout(() => {
       setSaving(false);
-      setSavedAt(Date.now());
-      if (window.notify) window.notify('บันทึกหมวดหมู่งานเรียบร้อย', 'success');
-      setTimeout(() => setSavedAt(null), 2400);
+      if (window.notify) window.notify('บันทึก preset เรียบร้อย', 'success');
     }, 250);
   };
 
@@ -1839,8 +2012,8 @@ function GlobalCategoriesScreen({ categories, categoryCosts, onUpdate, currentRo
     <div>
       <div className="page-header">
         <div className="titles">
-          <h1>หมวดหมู่งาน</h1>
-          <div className="sub">ข้อมูลส่วนกลาง · ใช้ได้กับทุกโครงการ</div>
+          <h1>หมวดหมู่งาน (Preset)</h1>
+          <div className="sub">เก็บ preset หมวดหมู่ไว้ใช้ซ้ำ · เลือกใช้ได้ในหน้า "จัดการหมวดหมู่" ของแต่ละโครงการ</div>
         </div>
         {canEdit ? (
           <div className="page-actions">
@@ -1854,18 +2027,12 @@ function GlobalCategoriesScreen({ categories, categoryCosts, onUpdate, currentRo
         ) : null}
       </div>
 
-      {canEdit ? (
-        <Alert tone="info" icon="info">
-          <strong>จัดการหมวดหมู่ย่อยส่วนกลาง</strong>
-          <p>หมวดหมู่เหล่านี้จะใช้กับทุกโครงการ — เพิ่ม แก้ไข ลบ และกำหนดต้นทุนเป้าหมาย แล้วกด <strong>บันทึกทั้งหมด</strong></p>
-        </Alert>
-      ) : (
+      {!canEdit ? (
         <Alert tone="warn" icon="info">
-          <strong>ดูหมวดหมู่ย่อยเท่านั้น</strong> — เฉพาะผู้จัดการและผู้บริหารสามารถเพิ่ม แก้ไข หรือลบหมวดหมู่ได้
+          <strong>ดูเท่านั้น</strong> — เฉพาะผู้จัดการและผู้บริหารสามารถสร้าง/แก้ไข preset ได้
         </Alert>
-      )}
+      ) : null}
 
-      {/* Dirty indicator */}
       {dirty && canEdit ? (
         <div className="card tight mb-16" style={{
           padding:'10px 14px', display:'flex', alignItems:'center', justifyContent:'space-between',
@@ -1887,100 +2054,198 @@ function GlobalCategoriesScreen({ categories, categoryCosts, onUpdate, currentRo
         </div>
       ) : null}
 
-      <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(320px, 1fr))', gap:'16px'}}>
-        {ALL_KINDS.map(kind => {
-          const meta = KINDS[kind];
-          const list = draftCats[kind] || [];
-          const kindCostMap = draftCosts[kind] || {};
-          return (
-            <div key={kind} className="card">
-              <div className="between mb-16">
-                <div className="row gap-8">
-                  <div className="value-with-icon">
-                    <div className="ic" style={{width:'32px', height:'32px', background: meta.color + '20', color: meta.color}}>
-                      <KindIcon kind={kind} size={16}/>
+      <div style={{display:'grid', gridTemplateColumns:'minmax(220px, 280px) 1fr', gap:'16px', alignItems:'start'}}>
+        {/* Preset list sidebar */}
+        <div className="card" style={{padding:'12px'}}>
+          <div className="between mb-12">
+            <div style={{fontSize:'13px', fontWeight:600}}>Preset ทั้งหมด</div>
+            {canEdit ? (
+              <button className="btn sm primary" onClick={addPreset} title="สร้าง preset ใหม่">
+                <Icon name="plus" size={12}/> เพิ่ม
+              </button>
+            ) : null}
+          </div>
+          <div className="col gap-4">
+            {draft.length === 0 ? (
+              <div className="dim" style={{padding:'16px 8px', textAlign:'center', fontSize:'12.5px'}}>
+                ยังไม่มี preset · {canEdit ? 'กดเพิ่มเพื่อสร้าง' : 'รอผู้ดูแลสร้าง'}
+              </div>
+            ) : draft.map(p => {
+              const isActive = p.id === activeId;
+              const total = ALL_KINDS.reduce((s, k) => s + ((p.categories && p.categories[k]) || []).length, 0);
+              const isRenaming = renamingId === p.id;
+              return (
+                <div key={p.id}
+                  className={isActive ? 'card tight' : ''}
+                  style={{
+                    padding:'8px 10px',
+                    background: isActive ? 'var(--brand-soft)' : 'var(--bg-2)',
+                    border: isActive ? '1px solid var(--border-brand)' : '1px solid transparent',
+                    borderRadius:'var(--r-sm)', cursor: isRenaming ? 'default' : 'pointer'
+                  }}
+                  onClick={() => { if (!isRenaming) setActiveId(p.id); }}>
+                  {isRenaming ? (
+                    <div className="row gap-4">
+                      <input className="input-base" autoFocus value={renamingName}
+                        onChange={e => setRenamingName(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') setRenamingId(null); }}
+                        onClick={e => e.stopPropagation()}
+                        style={{padding:'4px 6px', fontSize:'12.5px'}}/>
+                      <button className="icon-btn" onClick={e => { e.stopPropagation(); saveRename(); }}><Icon name="check" size={12}/></button>
+                      <button className="icon-btn" onClick={e => { e.stopPropagation(); setRenamingId(null); }}><Icon name="close" size={12}/></button>
+                    </div>
+                  ) : (
+                    <div className="row" style={{justifyContent:'space-between', alignItems:'center', gap:'6px'}}>
+                      <div style={{flex:1, minWidth:0}}>
+                        <div style={{fontSize:'13px', fontWeight: isActive ? 600 : 500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{p.name}</div>
+                        <div className="dim" style={{fontSize:'11px'}}>{total} หมวด</div>
+                      </div>
+                      {canEdit ? (
+                        <div className="row gap-2">
+                          <button className="icon-btn" title="เปลี่ยนชื่อ"
+                            onClick={e => { e.stopPropagation(); setRenamingId(p.id); setRenamingName(p.name); }}>
+                            <Icon name="edit" size={11}/>
+                          </button>
+                          <button className="icon-btn" title="ทำสำเนา"
+                            onClick={e => { e.stopPropagation(); duplicatePreset(p); }}>
+                            <Icon name="document" size={11}/>
+                          </button>
+                          <button className="icon-btn danger" title="ลบ"
+                            onClick={e => { e.stopPropagation(); removePreset(p.id); }}>
+                            <Icon name="trash" size={11}/>
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Active preset editor */}
+        <div>
+          {!active ? (
+            <Empty
+              icon="tags"
+              title="เลือก preset เพื่อแก้ไข"
+              hint={canEdit ? 'หรือกดเพิ่มเพื่อสร้าง preset ใหม่' : 'รอผู้ดูแลสร้าง preset'}
+              action={canEdit && draft.length === 0 ? (
+                <button className="btn primary sm" onClick={addPreset}>
+                  <Icon name="plus" size={14}/> สร้าง preset แรก
+                </button>
+              ) : null}
+            />
+          ) : (
+            <div>
+              <div className="card tight mb-16" style={{padding:'12px 14px'}}>
+                <div className="row" style={{justifyContent:'space-between', alignItems:'center'}}>
+                  <div>
+                    <div style={{fontSize:'15px', fontWeight:600}}>{active.name}</div>
+                    <div className="dim" style={{fontSize:'12px', marginTop:'2px'}}>
+                      แก้ไขรายการหมวดหมู่ย่อยและต้นทุนเป้าหมาย (ค่าเริ่มต้น)
                     </div>
                   </div>
-                  <div>
-                    <div style={{fontSize:'14px', fontWeight:600}}>{meta.short}</div>
-                    <div className="dim" style={{fontSize:'11.5px'}}>{list.length} หมวดย่อย</div>
-                  </div>
                 </div>
-                {canEdit ? (
-                  <button className="btn sm" onClick={() => setAdding({ kind, name: '' })}>
-                    <Icon name="plus" size={12}/> เพิ่ม
-                  </button>
-                ) : null}
               </div>
-              <div className="col gap-6">
-                {list.map(name => {
-                  const isEditing = editing.kind === kind && editing.oldName === name;
-                  const cost = (kindCostMap[name]) || 0;
+
+              <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(320px, 1fr))', gap:'16px'}}>
+                {ALL_KINDS.map(kind => {
+                  const meta = KINDS[kind];
+                  const list = (active.categories || {})[kind] || [];
+                  const kindCostMap = (active.categoryCosts || {})[kind] || {};
                   return (
-                    <div key={name} style={{padding:'8px 10px', background:'var(--bg-2)', borderRadius:'var(--r-sm)'}}>
-                      {isEditing && canEdit ? (
-                        <div className="row" style={{justifyContent:'space-between'}}>
-                          <input className="input-base" autoFocus value={editing.newName}
-                            onChange={e => setEditing({...editing, newName: e.target.value})}
-                            onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing({kind:null, oldName:'', newName:''}); }}
-                            style={{padding:'4px 8px', fontSize:'13px'}}/>
-                          <div className="row gap-4">
-                            <button className="icon-btn" onClick={saveEdit} title="บันทึก"><Icon name="check" size={14}/></button>
-                            <button className="icon-btn" onClick={() => setEditing({kind:null, oldName:'', newName:''})}><Icon name="close" size={14}/></button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="row" style={{justifyContent:'space-between', alignItems:'center'}}>
-                          <div className="row gap-8" style={{minWidth:0, flex:1, alignItems:'center'}}>
-                            <span style={{fontSize:'13px', fontWeight:500}}>{name}</span>
-                            {cost > 0 ? (
-                              <span className="dim mono" style={{fontSize:'11px'}}>{formatBaht(cost)} บ.</span>
-                            ) : null}
-                          </div>
-                          {canEdit ? (
-                            <div className="row gap-4">
-                              <button className="icon-btn" onClick={() => setEditing({ kind, oldName: name, newName: name })} title="แก้ไข">
-                                <Icon name="edit" size={13}/>
-                              </button>
-                              {canEdit ? (
-                                <div className="with-suffix" style={{width:'96px'}}>
-                                  <input className="input-base num-input mono" inputMode="decimal" placeholder="0"
-                                    value={cost === 0 ? '' : formatNumberInput(String(cost))}
-                                    onChange={e => setCost(kind, name, parseNumberInput(formatNumberInput(e.target.value)))}
-                                    style={{padding:'3px 6px', fontSize:'11px'}}
-                                    title="ต้นทุนเป้าหมาย (บ.)"/>
-                                  <span className="suffix" style={{fontSize:'10px'}}>บ.</span>
-                                </div>
-                              ) : null}
-                              <button className="icon-btn danger" onClick={() => removeCat(kind, name)} title="ลบ">
-                                <Icon name="trash" size={13}/>
-                              </button>
+                    <div key={kind} className="card">
+                      <div className="between mb-16">
+                        <div className="row gap-8">
+                          <div className="value-with-icon">
+                            <div className="ic" style={{width:'32px', height:'32px', background: meta.color + '20', color: meta.color}}>
+                              <KindIcon kind={kind} size={16}/>
                             </div>
-                          ) : null}
+                          </div>
+                          <div>
+                            <div style={{fontSize:'14px', fontWeight:600}}>{meta.short}</div>
+                            <div className="dim" style={{fontSize:'11.5px'}}>{list.length} หมวดย่อย</div>
+                          </div>
                         </div>
-                      )}
+                        {canEdit ? (
+                          <button className="btn sm" onClick={() => setAdding({ kind, name: '' })}>
+                            <Icon name="plus" size={12}/> เพิ่ม
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="col gap-6">
+                        {list.map(name => {
+                          const isEditing = editing.kind === kind && editing.oldName === name;
+                          const cost = (kindCostMap[name]) || 0;
+                          return (
+                            <div key={name} style={{padding:'8px 10px', background:'var(--bg-2)', borderRadius:'var(--r-sm)'}}>
+                              {isEditing && canEdit ? (
+                                <div className="row" style={{justifyContent:'space-between'}}>
+                                  <input className="input-base" autoFocus value={editing.newName}
+                                    onChange={e => setEditing({...editing, newName: e.target.value})}
+                                    onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing({kind:null, oldName:'', newName:''}); }}
+                                    style={{padding:'4px 8px', fontSize:'13px'}}/>
+                                  <div className="row gap-4">
+                                    <button className="icon-btn" onClick={saveEdit} title="บันทึก"><Icon name="check" size={14}/></button>
+                                    <button className="icon-btn" onClick={() => setEditing({kind:null, oldName:'', newName:''})}><Icon name="close" size={14}/></button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="row" style={{justifyContent:'space-between', alignItems:'center'}}>
+                                  <div className="row gap-8" style={{minWidth:0, flex:1, alignItems:'center'}}>
+                                    <span style={{fontSize:'13px', fontWeight:500}}>{name}</span>
+                                    {cost > 0 ? (
+                                      <span className="dim mono" style={{fontSize:'11px'}}>{formatBaht(cost)} บ.</span>
+                                    ) : null}
+                                  </div>
+                                  {canEdit ? (
+                                    <div className="row gap-4">
+                                      <button className="icon-btn" onClick={() => setEditing({ kind, oldName: name, newName: name })} title="แก้ไข">
+                                        <Icon name="edit" size={13}/>
+                                      </button>
+                                      <div className="with-suffix" style={{width:'96px'}}>
+                                        <input className="input-base num-input mono" inputMode="decimal" placeholder="0"
+                                          value={cost === 0 ? '' : formatNumberInput(String(cost))}
+                                          onChange={e => setCost(kind, name, parseNumberInput(formatNumberInput(e.target.value)))}
+                                          style={{padding:'3px 6px', fontSize:'11px'}}
+                                          title="ต้นทุนเริ่มต้น (บ.)"/>
+                                        <span className="suffix" style={{fontSize:'10px'}}>บ.</span>
+                                      </div>
+                                      <button className="icon-btn danger" onClick={() => removeCat(kind, name)} title="ลบ">
+                                        <Icon name="trash" size={13}/>
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {adding.kind === kind && canEdit ? (
+                          <div className="row gap-4" style={{padding:'8px 10px', background:'var(--brand-soft)', borderRadius:'var(--r-sm)'}}>
+                            <input className="input-base" autoFocus placeholder="ชื่อหมวดหมู่ใหม่..."
+                              value={adding.name} onChange={e => setAdding({...adding, name: e.target.value})}
+                              onKeyDown={e => { if (e.key === 'Enter') addCat(kind); if (e.key === 'Escape') setAdding({kind:null,name:''}); }}
+                              style={{padding:'5px 8px', fontSize:'13px'}}/>
+                            <button className="icon-btn" onClick={() => addCat(kind)}><Icon name="check" size={14}/></button>
+                            <button className="icon-btn" onClick={() => setAdding({kind:null, name:''})}><Icon name="close" size={14}/></button>
+                          </div>
+                        ) : null}
+                        {list.length === 0 && adding.kind !== kind ? (
+                          <div className="dim" style={{padding:'12px', textAlign:'center', fontSize:'12.5px'}}>
+                            ยังไม่มีหมวดหมู่ย่อย
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                   );
                 })}
-                {adding.kind === kind && canEdit ? (
-                  <div className="row gap-4" style={{padding:'8px 10px', background:'var(--brand-soft)', borderRadius:'var(--r-sm)'}}>
-                    <input className="input-base" autoFocus placeholder="ชื่อหมวดหมู่ใหม่..."
-                      value={adding.name} onChange={e => setAdding({...adding, name: e.target.value})}
-                      onKeyDown={e => { if (e.key === 'Enter') addCat(kind); if (e.key === 'Escape') setAdding({kind:null,name:''}); }}
-                      style={{padding:'5px 8px', fontSize:'13px'}}/>
-                    <button className="icon-btn" onClick={() => addCat(kind)}><Icon name="check" size={14}/></button>
-                    <button className="icon-btn" onClick={() => setAdding({kind:null, name:''})}><Icon name="close" size={14}/></button>
-                  </div>
-                ) : null}
-                {list.length === 0 && adding.kind !== kind ? (
-                  <div className="dim" style={{padding:'12px', textAlign:'center', fontSize:'12.5px'}}>
-                    ยังไม่มีหมวดหมู่ย่อย
-                  </div>
-                ) : null}
               </div>
             </div>
-          );
-        })}
+          )}
+        </div>
       </div>
     </div>
   );

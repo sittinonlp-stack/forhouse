@@ -161,9 +161,8 @@ function App() {
   var [toasts,             setToasts]             = useState([]);
   var [showLogin,          setShowLogin]          = useState(false);
   // ── Global settings (shared across all projects) ─
-  var [globalWorkers,        setGlobalWorkers]        = useState([]);
-  var [globalCategories,     setGlobalCategories]     = useState({});
-  var [globalCategoryCosts,  setGlobalCategoryCosts]  = useState({});
+  var [globalWorkers,  setGlobalWorkers]  = useState([]);
+  var [globalPresets,  setGlobalPresets]  = useState([]);
 
   // ── Toast notifications ──────────────────────────────
   var notify = useCallback(function(message, type) {
@@ -227,18 +226,33 @@ function App() {
           if (Array.isArray(p.global_workers) && p.global_workers.length > 0) {
             setGlobalWorkers(p.global_workers);
           }
-          if (p.global_categories && Object.keys(p.global_categories).length > 0) {
-            setGlobalCategories(p.global_categories);
+          if (Array.isArray(p.global_presets) && p.global_presets.length > 0) {
+            setGlobalPresets(p.global_presets);
+          } else if (p.global_categories && Object.keys(p.global_categories).length > 0) {
+            // Migrate legacy global_categories → a single preset
+            setGlobalPresets([{
+              id: 'preset-default',
+              name: 'Preset เริ่มต้น',
+              categories:    p.global_categories,
+              categoryCosts: p.global_category_costs || {}
+            }]);
           } else {
-            // Seed with defaults on first load
-            setGlobalCategories(JSON.parse(JSON.stringify(window.DEFAULT_CATS)));
-          }
-          if (p.global_category_costs && Object.keys(p.global_category_costs).length > 0) {
-            setGlobalCategoryCosts(p.global_category_costs);
+            // First-time user — seed one preset from DEFAULT_CATS
+            setGlobalPresets([{
+              id: 'preset-default',
+              name: 'Preset เริ่มต้น',
+              categories:    JSON.parse(JSON.stringify(window.DEFAULT_CATS)),
+              categoryCosts: {}
+            }]);
           }
         } else {
-          // No profile yet — seed categories from defaults
-          setGlobalCategories(JSON.parse(JSON.stringify(window.DEFAULT_CATS)));
+          // No profile yet — seed one preset from defaults
+          setGlobalPresets([{
+            id: 'preset-default',
+            name: 'Preset เริ่มต้น',
+            categories:    JSON.parse(JSON.stringify(window.DEFAULT_CATS)),
+            categoryCosts: {}
+          }]);
         }
         setAuthLoading(false);
         setLiveMode(true);
@@ -279,8 +293,13 @@ function App() {
   function handleDemoLogin() {
     window.CURRENT_USER = { id: 'demo', name: 'ผู้ใช้ Demo', role: 'executive', canApprove: true, canViewBalance: true };
     setProjects(JSON.parse(JSON.stringify(window.SAMPLE_PROJECTS)));
-    // Seed global categories from defaults in demo mode
-    setGlobalCategories(JSON.parse(JSON.stringify(window.DEFAULT_CATS)));
+    // Seed one default preset in demo mode
+    setGlobalPresets([{
+      id: 'preset-default',
+      name: 'Preset เริ่มต้น',
+      categories:    JSON.parse(JSON.stringify(window.DEFAULT_CATS)),
+      categoryCosts: {}
+    }]);
     setShowLogin(false);
     setAuthLoading(false);
   }
@@ -519,22 +538,18 @@ function App() {
     }
   }, [user, liveMode]);
 
-  var updateGlobalCategories = useCallback(function(payload) {
-    var newCats  = payload.categories     || globalCategories;
-    var newCosts = payload.categoryCosts  || globalCategoryCosts;
-    setGlobalCategories(newCats);
-    setGlobalCategoryCosts(newCosts);
+  var updateGlobalPresets = useCallback(function(newPresets) {
+    setGlobalPresets(newPresets);
     if (liveMode && _dbReady && user) {
       window.db.auth.saveGlobalSettings(user.id, {
-        global_categories:      newCats,
-        global_category_costs:  newCosts
+        global_presets: newPresets
       }).catch(function(err) {
-        console.error('[global] save categories error:', err);
-        setSyncError('บันทึกหมวดหมู่ไม่สำเร็จ: ' + (err.message || err));
+        console.error('[global] save presets error:', err);
+        setSyncError('บันทึก preset ไม่สำเร็จ: ' + (err.message || err));
         setTimeout(function() { setSyncError(''); }, 8000);
       });
     }
-  }, [user, liveMode, globalCategories, globalCategoryCosts]);
+  }, [user, liveMode]);
 
   function handleSignOut() {
     if (liveMode && _dbReady) {
@@ -546,24 +561,14 @@ function App() {
 
   var currentProject = view.projectId ? projects.find(function(p) { return p.id === view.projectId; }) : null;
 
-  // Overlay global workers & categories onto the current project
-  // so all child components (POEditorModal, TransactionModal, etc.) use them transparently
+  // Overlay global workers onto the current project so POEditor / TransactionModal
+  // can pick from the global workers list transparently. Categories stay per-project.
   var currentProjectWithGlobal = useMemo(function() {
     if (!currentProject) return null;
-    var effectiveCats = (globalCategories && Object.keys(globalCategories).length > 0)
-      ? globalCategories
-      : (currentProject.categories && Object.keys(currentProject.categories).some(function(k){ return (currentProject.categories[k]||[]).length > 0; })
-          ? currentProject.categories
-          : JSON.parse(JSON.stringify(window.DEFAULT_CATS)));
-    var effectiveCosts = (globalCategoryCosts && Object.keys(globalCategoryCosts).length > 0)
-      ? globalCategoryCosts
-      : currentProject.categoryCosts;
     return Object.assign({}, currentProject, {
-      categories:     effectiveCats,
-      categoryCosts:  effectiveCosts,
-      workers:        globalWorkers.length > 0 ? globalWorkers : (currentProject.workers || [])
+      workers: globalWorkers.length > 0 ? globalWorkers : (currentProject.workers || [])
     });
-  }, [currentProject, globalWorkers, globalCategories, globalCategoryCosts]);
+  }, [currentProject, globalWorkers]);
 
   var goto = function(v) { setView(v); setSidebarOpen(false); };
 
@@ -656,7 +661,7 @@ function App() {
             <div className="sidebar-section-label">ข้อมูลส่วนกลาง</div>
             <button className={'nav-item ' + (view.name === 'globalCategories' ? 'active' : '')}
               onClick={function(){goto({name:'globalCategories'});}}>
-              <Icon name="tags" size={16}/> <span>หมวดหมู่งาน</span>
+              <Icon name="tags" size={16}/> <span>หมวดหมู่งาน (Preset)</span>
             </button>
             <button className={'nav-item ' + (view.name === 'globalWorkers' ? 'active' : '')}
               onClick={function(){goto({name:'globalWorkers'});}}>
@@ -712,7 +717,7 @@ function App() {
                 <strong>แผนรายรับรายเดือน</strong>
               </>) : view.name === 'globalCategories' ? (<>
                 <span className="sep">/</span>
-                <strong>หมวดหมู่งาน</strong>
+                <strong>หมวดหมู่งาน (Preset)</strong>
               </>) : view.name === 'globalWorkers' ? (<>
                 <span className="sep">/</span>
                 <strong>ทีมช่าง</strong>
@@ -787,6 +792,7 @@ function App() {
               onDelete={function(){ removeProject(currentProjectWithGlobal.id); goto({name:'dashboard'}); }}
               onOpenBalance={function(){goto({name:'balance',projectId:currentProjectWithGlobal.id});}}
               currentRole={getEffectiveRole(currentProjectWithGlobal, cu.name, currentRole)}
+              presets={globalPresets}
             />
           ) : view.name === 'balance' && currentProjectWithGlobal ? (
             <BalanceSheet
@@ -795,10 +801,9 @@ function App() {
               currentRole={getEffectiveRole(currentProjectWithGlobal, cu.name, currentRole)}
             />
           ) : view.name === 'globalCategories' ? (
-            <GlobalCategoriesScreen
-              categories={globalCategories}
-              categoryCosts={globalCategoryCosts}
-              onUpdate={updateGlobalCategories}
+            <GlobalPresetsScreen
+              presets={globalPresets}
+              onUpdate={updateGlobalPresets}
               currentRole={currentRole}
             />
           ) : view.name === 'globalWorkers' ? (
