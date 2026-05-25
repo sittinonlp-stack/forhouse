@@ -1,0 +1,35 @@
+{
+  "name": "FOR HOUSE — ระบบควบคุมต้นทุน",
+  "short_name": "FOR HOUSE",
+  "description": "ระบบควบคุมต้นทุนงานรับเหมาก่อสร้าง",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07090a",
+  "theme_color": "#22c55e",
+  "lang": "th",
+  "orientation": "any",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/forhouse-logo.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "assets/forhouse-logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false
+}

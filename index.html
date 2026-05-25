@@ -2,11 +2,35 @@
 <html lang="th">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>FOR HOUSE — ระบบควบคุมต้นทุนงานรับเหมาก่อสร้าง</title>
+
+<!-- ── PWA Manifest ── -->
+<link rel="manifest" href="manifest.json">
+
+<!-- ── Theme color (Android chrome toolbar + iOS status bar) ── -->
+<meta name="theme-color" content="#22c55e">
+
+<!-- ── iOS / iPadOS home-screen PWA ── -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FOR HOUSE">
+<link rel="apple-touch-icon" href="assets/forhouse-logo.jpg">
+
+<!-- ── Favicon ── -->
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+<link rel="icon" type="image/jpeg" href="assets/forhouse-logo.jpg">
+
+<!-- ── SEO / meta ── -->
+<meta name="description" content="ระบบควบคุมต้นทุนงานรับเหมาก่อสร้าง — บริหารโครงการ, PO, ประกันผลงาน, บิลค้างลงบัญชี">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="application-name" content="FOR HOUSE">
+
+<!-- ── Fonts ── -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
 <link rel="stylesheet" href="styles.css?v=25">
 </head>
 <body>
@@ -31,5 +55,20 @@
 <script type="text/babel" src="income-plan.jsx?v=25"></script>
 <script type="text/babel" src="screens.jsx?v=25"></script>
 <script type="text/babel" src="app.jsx?v=25"></script>
+
+<!-- ── Service Worker registration ── -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('/sw.js')
+        .then(function (reg) {
+          console.log('[SW] registered, scope:', reg.scope);
+        })
+        .catch(function (err) {
+          console.warn('[SW] registration failed:', err);
+        });
+    });
+  }
+</script>
 </body>
 </html>
