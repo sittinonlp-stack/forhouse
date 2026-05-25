@@ -2258,10 +2258,42 @@ function GlobalPresetsScreen({ presets, onUpdate, currentRole }) {
    ============================================================ */
 function DepositTrackingScreen({ projects, onUpdateProject, currentRole }) {
   const canMarkReturn = (ROLES[currentRole] || ROLES.staff).canApprove;
-  const [filter,      setFilter]      = useState('pending'); // 'all' | 'pending' | 'returned'
-  const [returnModal, setReturnModal] = useState(null);      // item object
-  const [returnDate,  setReturnDate]  = useState(() => new Date().toISOString().slice(0,10));
-  const [returnNote,  setReturnNote]  = useState('');
+  const [filter,         setFilter]        = useState('pending'); // 'all' | 'pending' | 'returned'
+  const [returnModal,    setReturnModal]    = useState(null);     // item object
+  const [returnDate,     setReturnDate]     = useState(() => new Date().toISOString().slice(0,10));
+  const [returnNote,     setReturnNote]     = useState('');
+  const [returnImages,   setReturnImages]   = useState([]);       // [{ url, name, size, mime }]
+  const [returnUploading,setReturnUploading]= useState(false);
+  const [returnPreviewImg,setReturnPreviewImg] = useState(null);
+
+  const handleReturnImageSelect = (fileList, projectId) => {
+    const remaining = 5 - returnImages.length;
+    if (remaining <= 0) { alert('แนบรูปได้สูงสุด 5 รูป'); return; }
+    const files = Array.from(fileList).slice(0, remaining).filter(f => f.type.startsWith('image/'));
+    if (files.length === 0) return;
+    const isLive = window.db && window.db.isReady();
+    if (!isLive) {
+      Promise.all(files.map(f => new Promise(resolve => {
+        const r = new FileReader();
+        r.onload = () => resolve({ url: r.result, name: f.name, size: f.size, mime: f.type });
+        r.readAsDataURL(f);
+      }))).then(arr => setReturnImages(imgs => [...imgs, ...arr]));
+      return;
+    }
+    setReturnUploading(true);
+    Promise.all(files.map(f => {
+      const path = (projectId || 'demo') + '/returns/' + genId() + '-' + f.name.replace(/[^\w.-]/g, '_');
+      return window.db.files.uploadFile('po-images', path, f)
+        .then(url => ({ url, name: f.name, size: f.size, mime: f.type }));
+    })).then(arr => {
+      setReturnImages(imgs => [...imgs, ...arr]);
+      setReturnUploading(false);
+    }).catch(err => {
+      alert('อัปโหลดรูปไม่สำเร็จ: ' + (err.message || err));
+      setReturnUploading(false);
+    });
+  };
+  const removeReturnImage = (idx) => setReturnImages(imgs => imgs.filter((_, i) => i !== idx));
 
   // How many projects haven't been fully loaded yet
   const unloadedCount = projects.filter(p => !Array.isArray(p.transactions)).length;
@@ -2344,24 +2376,34 @@ function DepositTrackingScreen({ projects, onUpdateProject, currentRole }) {
     setReturnModal(item);
     setReturnDate(new Date().toISOString().slice(0,10));
     setReturnNote('');
+    setReturnImages([]);
+    setReturnPreviewImg(null);
+  };
+
+  const closeReturnModal = () => {
+    setReturnModal(null);
+    setReturnImages([]);
+    setReturnPreviewImg(null);
   };
 
   const doMarkReturn = () => {
     if (!returnModal) return;
     const { project, po, type } = returnModal;
+    const imgs = returnImages.length > 0 ? returnImages : undefined;
     let updatedPO;
     if (type === 'retention') {
-      updatedPO = { ...po, retentionReturn: { returnedDate: returnDate, note: returnNote.trim() } };
+      updatedPO = { ...po, retentionReturn: { returnedDate: returnDate, note: returnNote.trim(), images: imgs } };
     } else {
-      updatedPO = { ...po, deposit: { ...po.deposit, status: 'returned', returnedDate: returnDate, returnSlip: returnNote.trim() } };
+      updatedPO = { ...po, deposit: { ...po.deposit, status: 'returned', returnedDate: returnDate, returnSlip: returnNote.trim(), images: imgs } };
     }
     const updatedProject = {
       ...project,
       transactions: project.transactions.map(t => t.id === po.id ? updatedPO : t)
     };
     onUpdateProject(updatedProject);
-    setReturnModal(null);
-    if (window.notify) window.notify('บันทึกคืนเงินประกันให้ ' + returnModal.vendor + ' แล้ว', 'success');
+    const vendor = returnModal.vendor;
+    closeReturnModal();
+    if (window.notify) window.notify('บันทึกคืนเงินประกันให้ ' + vendor + ' แล้ว', 'success');
   };
 
   return (
@@ -2550,13 +2592,15 @@ function DepositTrackingScreen({ projects, onUpdateProject, currentRole }) {
 
       {/* Return confirmation modal */}
       {returnModal ? (
-        <Modal open={true} onClose={() => setReturnModal(null)} title="บันทึกคืนเงินประกัน"
+        <Modal open={true} onClose={closeReturnModal} title="บันทึกคืนเงินประกัน"
           footer={<>
-            <button className="btn ghost" onClick={() => setReturnModal(null)}>ยกเลิก</button>
-            <button className="btn primary" disabled={!returnDate} onClick={doMarkReturn}>
+            <button className="btn ghost" onClick={closeReturnModal}>ยกเลิก</button>
+            <button className="btn primary" disabled={!returnDate || returnUploading} onClick={doMarkReturn}>
               <Icon name="check" size={14}/> ยืนยันคืนเงินประกัน
             </button>
           </>}>
+
+          {/* Summary info */}
           <div className="card tight mb-16" style={{padding:'12px 16px', background:'var(--bg-0)'}}>
             <div style={{fontSize:'13.5px', fontWeight:600, marginBottom:'3px'}}>{returnModal.vendor}</div>
             <div className="dim" style={{fontSize:'12.5px'}}>
@@ -2572,7 +2616,9 @@ function DepositTrackingScreen({ projects, onUpdateProject, currentRole }) {
               </span>
             </div>
           </div>
-          <div className="form-grid">
+
+          {/* Date + note */}
+          <div className="form-grid mb-16">
             <div className="field">
               <label>วันที่คืนเงิน <span className="req">*</span></label>
               <input className="input-base" type="date" value={returnDate}
@@ -2584,7 +2630,53 @@ function DepositTrackingScreen({ projects, onUpdateProject, currentRole }) {
                 value={returnNote} onChange={e => setReturnNote(e.target.value)}/>
             </div>
           </div>
+
+          {/* Image attachments */}
+          <div className="field">
+            <label style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+              <span>
+                แนบรูปหลักฐาน
+                <span className="dim" style={{fontWeight:400}}> (ใบรับเงิน, สลิปโอน ฯลฯ — สูงสุด 5 รูป)</span>
+              </span>
+              <span className="dim" style={{fontSize:'11px'}}>{returnImages.length}/5</span>
+            </label>
+            <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(88px, 1fr))', gap:'8px', marginTop:'6px'}}>
+              {returnImages.map((img, i) => (
+                <div key={i} style={{position:'relative', aspectRatio:'1/1', borderRadius:'var(--r-sm)', overflow:'hidden', background:'var(--bg-2)', border:'1px solid var(--border)'}}>
+                  <img src={img.url} alt={img.name} onClick={() => setReturnPreviewImg(img)}
+                    style={{width:'100%', height:'100%', objectFit:'cover', cursor:'zoom-in'}}/>
+                  <button type="button" onClick={() => removeReturnImage(i)}
+                    style={{position:'absolute', top:'3px', right:'3px', background:'rgba(0,0,0,.7)', border:'none', color:'#fff', width:'20px', height:'20px', borderRadius:'50%', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center'}}>
+                    <Icon name="close" size={10}/>
+                  </button>
+                </div>
+              ))}
+              {returnImages.length < 5 ? (
+                <label style={{
+                  aspectRatio:'1/1', borderRadius:'var(--r-sm)', border:'1.5px dashed var(--border-strong)',
+                  display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+                  cursor: returnUploading ? 'wait' : 'pointer', gap:'5px', color:'var(--text-3)',
+                  background: returnUploading ? 'var(--bg-2)' : 'transparent'
+                }}>
+                  <Icon name={returnUploading ? 'clock' : 'plus'} size={16}/>
+                  <span style={{fontSize:'10px'}}>{returnUploading ? 'กำลังอัปโหลด...' : 'เพิ่มรูป'}</span>
+                  <input type="file" accept="image/*" multiple disabled={returnUploading}
+                    onChange={e => { handleReturnImageSelect(e.target.files, returnModal.project.id); e.target.value = ''; }}
+                    style={{display:'none'}}/>
+                </label>
+              ) : null}
+            </div>
+          </div>
         </Modal>
+      ) : null}
+
+      {/* Lightbox preview for return images */}
+      {returnPreviewImg ? (
+        <div onClick={() => setReturnPreviewImg(null)}
+          style={{position:'fixed', inset:0, background:'rgba(0,0,0,.88)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:'24px', cursor:'zoom-out'}}>
+          <img src={returnPreviewImg.url} alt={returnPreviewImg.name}
+            style={{maxWidth:'100%', maxHeight:'100%', objectFit:'contain', borderRadius:'8px'}}/>
+        </div>
       ) : null}
     </div>
   );
