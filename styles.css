@@ -971,8 +971,9 @@ table.data tfoot td {
   .nav-item { justify-content: center; padding: 10px; }
   .style-switch { display: none; }
   .topbar .search { width: 200px; }
-  /* Keep badge visible on icon-only sidebar */
-  .nav-item > span[style] { display: flex !important; position: absolute; top: 6px; right: 6px; }
+  /* Keep numeric badge visible on icon-only sidebar (class .nav-badge is explicit — avoids
+     matching project-name spans which also carry an inline style attribute) */
+  .nav-item > .nav-badge { display: flex !important; position: absolute; top: 5px; right: 5px; }
 }
 
 /* ── Mobile (≤ 720px) ──────────────────────────────── */
@@ -992,7 +993,18 @@ table.data tfoot td {
   .sidebar.open { transform: none; }
   .sidebar.open .sidebar-brand .word,
   .sidebar.open .sidebar-section-label,
-  .sidebar.open .nav-item span:not(.count) { display: flex; }
+  .sidebar.open .nav-item span:not(.count) {
+    display: block;          /* show all text labels */
+    position: static;        /* undo tablet's position:absolute from .nav-badge rule */
+    top: auto; right: auto;  /* reset offsets */
+  }
+  /* Badge stays inline (flex) and resets to normal flow */
+  .sidebar.open .nav-item > .nav-badge {
+    display: flex !important;
+    position: static;
+    top: auto; right: auto;
+    margin-left: auto;
+  }
   .sidebar.open .nav-item { justify-content: flex-start; padding: 10px 12px; }
   .sidebar.open .sidebar-brand { justify-content: flex-start; padding: 20px 20px 18px; }
   .sidebar.open .style-switch { display: flex; padding: 3px; background: var(--bg-2); border: 1px solid var(--border); }

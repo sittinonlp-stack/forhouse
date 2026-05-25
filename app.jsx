@@ -754,7 +754,7 @@ function App() {
               <Icon name="clock" size={16}/>
               <span>ประกันผลงานค้างจ่าย</span>
               {pendingDepositCount > 0
-                ? <span style={{marginLeft:'auto',background:'var(--warn)',color:'#000',borderRadius:'10px',padding:'1px 6px',fontSize:'10px',fontWeight:700,flexShrink:0}}>{pendingDepositCount}</span>
+                ? <span className="nav-badge" style={{marginLeft:'auto',background:'var(--warn)',color:'#000',borderRadius:'10px',padding:'1px 6px',fontSize:'10px',fontWeight:700,flexShrink:0}}>{pendingDepositCount}</span>
                 : null}
             </button>
             <button className={'nav-item ' + (view.name === 'quickReceipts' ? 'active' : '')}
@@ -762,7 +762,7 @@ function App() {
               <Icon name="receipt" size={16}/>
               <span>บิลค้างลงบัญชี</span>
               {quickReceiptCount > 0
-                ? <span style={{marginLeft:'auto',background:'var(--info)',color:'#fff',borderRadius:'10px',padding:'1px 6px',fontSize:'10px',fontWeight:700,flexShrink:0}}>{quickReceiptCount}</span>
+                ? <span className="nav-badge" style={{marginLeft:'auto',background:'var(--info)',color:'#fff',borderRadius:'10px',padding:'1px 6px',fontSize:'10px',fontWeight:700,flexShrink:0}}>{quickReceiptCount}</span>
                 : null}
             </button>
             <div className="sidebar-section-label">เครื่องมือ</div>
