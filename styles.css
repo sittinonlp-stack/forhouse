@@ -2484,6 +2484,96 @@ table.data tfoot td {
   opacity: 0.65;
 }
 
+/* ====================================================
+   CAMERA FAB (Floating Action Button)
+   ==================================================== */
+.fab {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 80;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #032012;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(34,197,94,0.45), 0 2px 8px rgba(0,0,0,0.5);
+  transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.fab:hover {
+  transform: scale(1.07);
+  background: var(--brand-bright);
+  box-shadow: 0 6px 28px rgba(34,197,94,0.55), 0 2px 8px rgba(0,0,0,0.5);
+}
+.fab:active { transform: scale(0.94); }
+@media print { .fab { display: none !important; } }
+
+/* ====================================================
+   QUICK RECEIPT CARDS
+   ==================================================== */
+.quick-receipt-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 840px;
+}
+
+.quick-receipt-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  transition: border-color 0.15s;
+}
+.quick-receipt-card:hover { border-color: var(--border-strong); }
+
+.qr-thumb {
+  width: 76px;
+  height: 76px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-2);
+  padding: 0;
+  transition: opacity 0.15s;
+}
+.qr-thumb:hover { opacity: 0.85; }
+.qr-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.qr-thumb.no-img { color: var(--text-3); cursor: default; }
+
+.qr-info { flex: 1; min-width: 0; }
+.qr-project {
+  font-size: 14px; font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.qr-meta {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 4px; flex-wrap: wrap;
+}
+.qr-code { font-size: 11px; color: var(--text-3); }
+.qr-date { font-size: 12px; color: var(--text-2); }
+.qr-note { font-size: 12px; margin-top: 4px; color: var(--text-3); }
+
+@media (max-width: 480px) {
+  .fab { bottom: 20px; right: 16px; width: 52px; height: 52px; }
+  .qr-thumb { width: 60px; height: 60px; }
+  .qr-project { font-size: 13px; }
+}
+
 @media print {
   #summary-print-area, #summary-print-area * { color: #000 !important; }
   #summary-print-area .dim { color: #666 !important; }

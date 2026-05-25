@@ -3924,4 +3924,144 @@ function ProjectSummaryReport({ project, agg, onClose }) {
   );
 }
 
+/* ============================================================
+   QUICK RECEIPTS SCREEN — บิลค้างลงบัญชีโครงการ
+   แสดงรูปบิลที่ถ่ายด่วนจากทุกโครงการ พร้อมปุ่มลบ
+   ============================================================ */
+function QuickReceiptsScreen({ projects, onDeleteReceipt }) {
+  // Flatten all receipts from all projects, attach project info
+  var allReceipts = [];
+  projects.forEach(function(p) {
+    (p.quickReceipts || []).forEach(function(r) {
+      allReceipts.push(Object.assign({}, r, {
+        projectId:   p.id,
+        projectName: p.name,
+        projectCode: p.code || ''
+      }));
+    });
+  });
+
+  // Sort newest first (by date desc, then createdAt desc)
+  allReceipts.sort(function(a, b) {
+    var d = (b.date || '').localeCompare(a.date || '');
+    if (d !== 0) return d;
+    return (b.createdAt || '') > (a.createdAt || '') ? 1 : -1;
+  });
+
+  var [lightboxImg, setLightboxImg] = useState(null);
+  var [confirmDel, setConfirmDel]   = useState(null); // { projectId, receiptId, label }
+
+  if (allReceipts.length === 0) {
+    return (
+      <div>
+        <div className="page-header">
+          <div className="titles">
+            <h1>บิลค้างลงบัญชีโครงการ</h1>
+            <div className="sub">รูปบิล / ใบเสร็จที่ถ่ายรอลงบัญชี</div>
+          </div>
+        </div>
+        <Empty
+          title="ยังไม่มีบิลค้างลงบัญชี"
+          hint="กดปุ่มกล้อง มุมขวาล่างเพื่อถ่ายรูปบิลใหม่"
+          icon="receipt"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="page-header">
+        <div className="titles">
+          <h1>บิลค้างลงบัญชีโครงการ</h1>
+          <div className="sub">{allReceipts.length} รายการ รอลงบัญชี</div>
+        </div>
+      </div>
+
+      <div className="quick-receipt-grid">
+        {allReceipts.map(function(r) {
+          return (
+            <div key={r.id} className="quick-receipt-card">
+              {/* Thumbnail */}
+              {r.imageUrl ? (
+                <button className="qr-thumb" onClick={function(){setLightboxImg(r.imageUrl);}} title="ดูรูปขยาย">
+                  <img src={r.imageUrl} alt="บิล"/>
+                </button>
+              ) : (
+                <div className="qr-thumb no-img">
+                  <Icon name="receipt" size={28}/>
+                </div>
+              )}
+
+              {/* Info */}
+              <div className="qr-info">
+                <div className="qr-project">{r.projectName}</div>
+                <div className="qr-meta">
+                  {r.projectCode ? <span className="qr-code mono">{r.projectCode}</span> : null}
+                  <span className="qr-date">{formatDate(r.date) || r.date}</span>
+                </div>
+                {r.note ? <div className="qr-note dim">{r.note}</div> : null}
+              </div>
+
+              {/* Delete */}
+              <button
+                className="icon-btn"
+                style={{color:'var(--danger)', flexShrink:0}}
+                onClick={function(){
+                  setConfirmDel({ projectId: r.projectId, receiptId: r.id,
+                    label: r.projectName + ' · ' + (formatDate(r.date) || r.date) });
+                }}
+                title="ลบบิลนี้">
+                <Icon name="trash" size={16}/>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Lightbox */}
+      {lightboxImg ? (
+        <div onClick={function(){setLightboxImg(null);}}
+          style={{position:'fixed', inset:0, background:'rgba(0,0,0,.9)', zIndex:9999,
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  padding:'24px', cursor:'zoom-out'}}>
+          <img src={lightboxImg} alt="บิลขยาย"
+            style={{maxWidth:'100%', maxHeight:'100%', objectFit:'contain', borderRadius:'8px'}}
+            onClick={function(e){e.stopPropagation();}}/>
+          <button onClick={function(){setLightboxImg(null);}}
+            style={{position:'absolute', top:'16px', right:'16px', background:'rgba(0,0,0,0.6)',
+                    border:'none', color:'#fff', borderRadius:'50%', width:'36px', height:'36px',
+                    cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center'}}>
+            <Icon name="close" size={18}/>
+          </button>
+        </div>
+      ) : null}
+
+      {/* Confirm delete modal */}
+      {confirmDel ? (
+        <Modal open={true} onClose={function(){setConfirmDel(null);}} title="ลบบิล?"
+          footer={<>
+            <button className="btn ghost" onClick={function(){setConfirmDel(null);}}>ยกเลิก</button>
+            <button className="btn"
+              style={{background:'var(--danger-soft)', color:'var(--danger)', borderColor:'rgba(248,113,113,0.3)'}}
+              onClick={function(){
+                onDeleteReceipt(confirmDel.projectId, confirmDel.receiptId);
+                setConfirmDel(null);
+              }}>
+              <Icon name="trash" size={14}/> ลบบิล
+            </button>
+          </>}>
+          <div style={{color:'var(--text-2)', fontSize:'13.5px', lineHeight:1.6}}>
+            <div>ลบบิลนี้ออกจากระบบ?</div>
+            <div className="mono" style={{fontSize:'12px', color:'var(--text-3)', marginTop:'6px'}}>{confirmDel.label}</div>
+            <div style={{marginTop:'8px', fontSize:'12px', color:'var(--warn)'}}>
+              <Icon name="warn" size={12}/> ไม่สามารถกู้คืนได้
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+    </div>
+  );
+}
+
 Object.assign(window, { Dashboard, ProjectView, BalanceSheet, AllBalance, ProjectSummaryReport });

@@ -160,6 +160,7 @@ function App() {
   var [syncError,          setSyncError]          = useState('');
   var [toasts,             setToasts]             = useState([]);
   var [showLogin,          setShowLogin]          = useState(false);
+  var [qrOpen,             setQrOpen]             = useState(false); // quick-receipt FAB modal
   // ── Global settings (shared across all projects) ─
   var [globalWorkers,  setGlobalWorkers]  = useState([]);
   var [globalPresets,  setGlobalPresets]  = useState([]);
@@ -325,6 +326,15 @@ function App() {
   // Auto-load all unloaded projects when deposit tracking view is opened
   useEffect(function() {
     if (view.name !== 'depositTracking') return;
+    if (!liveMode || !_dbReady) return;
+    projects.forEach(function(p) {
+      if (!p._fullLoaded) ensureProjectFull(p.id);
+    });
+  }, [view.name, liveMode, projects.length]);
+
+  // Auto-load all projects when quick receipts view is opened
+  useEffect(function() {
+    if (view.name !== 'quickReceipts') return;
     if (!liveMode || !_dbReady) return;
     projects.forEach(function(p) {
       if (!p._fullLoaded) ensureProjectFull(p.id);
@@ -608,6 +618,52 @@ function App() {
     return cnt;
   }, [projects]);
 
+  // Badge count for quick receipts sidebar item
+  var quickReceiptCount = useMemo(function() {
+    var cnt = 0;
+    projects.forEach(function(p) { cnt += (p.quickReceipts || []).length; });
+    return cnt;
+  }, [projects]);
+
+  // ── Quick receipt handlers ─────────────────────────────
+  var handleSaveReceipt = useCallback(function(projectId, receipt) {
+    var proj = projects.find(function(p) { return p.id === projectId; });
+    if (!proj) return;
+    var newReceipts = (proj.quickReceipts || []).concat([receipt]);
+    setProjects(function(arr) {
+      return arr.map(function(p) {
+        return p.id === projectId ? Object.assign({}, p, { quickReceipts: newReceipts }) : p;
+      });
+    });
+    if (liveMode && _dbReady) {
+      window.db.projects.saveQuickReceipts(projectId, newReceipts)
+        .catch(function(err) {
+          console.error('[receipt] save error:', err);
+          setSyncError('บันทึกบิลไม่สำเร็จ: ' + (err.message || err));
+          setTimeout(function() { setSyncError(''); }, 8000);
+        });
+    }
+  }, [projects, liveMode]);
+
+  var handleDeleteReceipt = useCallback(function(projectId, receiptId) {
+    var proj = projects.find(function(p) { return p.id === projectId; });
+    if (!proj) return;
+    var newReceipts = (proj.quickReceipts || []).filter(function(r) { return r.id !== receiptId; });
+    setProjects(function(arr) {
+      return arr.map(function(p) {
+        return p.id === projectId ? Object.assign({}, p, { quickReceipts: newReceipts }) : p;
+      });
+    });
+    if (liveMode && _dbReady) {
+      window.db.projects.saveQuickReceipts(projectId, newReceipts)
+        .catch(function(err) {
+          console.error('[receipt] delete error:', err);
+          setSyncError('ลบบิลไม่สำเร็จ: ' + (err.message || err));
+          setTimeout(function() { setSyncError(''); }, 8000);
+        });
+    }
+  }, [projects, liveMode]);
+
   // ── Render guards ─────────────────────────────────────
   if (authLoading) return <LoadingOverlay text="กำลังตรวจสอบสิทธิ์..."/>;
   if (showLogin)   return <LoginScreen onLogin={handleDemoLogin}/>;
@@ -701,6 +757,14 @@ function App() {
                 ? <span style={{marginLeft:'auto',background:'var(--warn)',color:'#000',borderRadius:'10px',padding:'1px 6px',fontSize:'10px',fontWeight:700,flexShrink:0}}>{pendingDepositCount}</span>
                 : null}
             </button>
+            <button className={'nav-item ' + (view.name === 'quickReceipts' ? 'active' : '')}
+              onClick={function(){goto({name:'quickReceipts'});}}>
+              <Icon name="receipt" size={16}/>
+              <span>บิลค้างลงบัญชี</span>
+              {quickReceiptCount > 0
+                ? <span style={{marginLeft:'auto',background:'var(--info)',color:'#fff',borderRadius:'10px',padding:'1px 6px',fontSize:'10px',fontWeight:700,flexShrink:0}}>{quickReceiptCount}</span>
+                : null}
+            </button>
             <div className="sidebar-section-label">เครื่องมือ</div>
             <button className="nav-item" onClick={function(){setNewProjOpen(true);}}>
               <Icon name="plus" size={16}/> <span>เพิ่มโครงการใหม่</span>
@@ -763,6 +827,9 @@ function App() {
               </>) : view.name === 'depositTracking' ? (<>
                 <span className="sep">/</span>
                 <strong>ประกันผลงานค้างจ่าย</strong>
+              </>) : view.name === 'quickReceipts' ? (<>
+                <span className="sep">/</span>
+                <strong>บิลค้างลงบัญชี</strong>
               </>) : null}
             </div>
             <div className="spacer"></div>
@@ -860,6 +927,11 @@ function App() {
               onUpdateProject={updateProject}
               currentRole={currentRole}
             />
+          ) : view.name === 'quickReceipts' ? (
+            <QuickReceiptsScreen
+              projects={projects}
+              onDeleteReceipt={handleDeleteReceipt}
+            />
           ) : (
             <Empty title="ไม่พบหน้าที่ต้องการ" icon="warn"
               action={<button className="btn primary" onClick={function(){goto({name:'dashboard'});}}>กลับแดชบอร์ด</button>}/>
@@ -873,7 +945,160 @@ function App() {
           onSubmit={function(p){ addProject(p); setNewProjOpen(false); goto({name:'dashboard'}); }}
         />
       ) : null}
+
+      {/* ── Camera FAB ── */}
+      <button className="fab" onClick={function(){setQrOpen(true);}}
+        title="ถ่ายรูปบิล / ใบเสร็จ" aria-label="ถ่ายรูปบิล">
+        <Icon name="camera" size={22}/>
+      </button>
+
+      {qrOpen ? (
+        <QuickReceiptModal
+          projects={projects}
+          liveMode={liveMode}
+          user={user}
+          onClose={function(){setQrOpen(false);}}
+          onSave={function(projectId, receipt){
+            handleSaveReceipt(projectId, receipt);
+            setQrOpen(false);
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/* ========== Quick Receipt Modal ========== */
+function QuickReceiptModal({ projects, liveMode, user, onClose, onSave }) {
+  var openProjects = projects.filter(function(p){ return p.status !== 'completed'; });
+  var firstId = openProjects.length > 0 ? openProjects[0].id : (projects.length > 0 ? projects[0].id : '');
+
+  var [projectId,    setProjectId]    = useState(firstId);
+  var [date,         setDate]         = useState(new Date().toISOString().slice(0,10));
+  var [imagePreview, setImagePreview] = useState(null); // data URL for preview
+  var [imageFile,    setImageFile]    = useState(null); // File object
+  var [note,         setNote]         = useState('');
+  var [saving,       setSaving]       = useState(false);
+  var fileRef = useRef(null);
+
+  function handleFileChange(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    setImageFile(file);
+    var reader = new FileReader();
+    reader.onload = function(ev) { setImagePreview(ev.target.result); };
+    reader.readAsDataURL(file);
+  }
+
+  function handleSave() {
+    if (!projectId) return;
+    setSaving(true);
+
+    function finish(imageUrl) {
+      var receipt = {
+        id:        genId(),
+        date:      date,
+        imageUrl:  imageUrl || null,
+        note:      note.trim(),
+        createdAt: new Date().toISOString()
+      };
+      onSave(projectId, receipt);
+      setSaving(false);
+      if (window.notify) window.notify('บันทึกบิลเรียบร้อย', 'success');
+    }
+
+    // Live mode: try uploading to Supabase Storage
+    if (imageFile && liveMode && window.db.isReady()) {
+      var uid = user && user.id ? user.id : 'demo';
+      var path = 'quick-receipts/' + uid + '/' + genId() + '-' + imageFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      window.db.files.uploadFile('po-images', path, imageFile)
+        .then(function(url) { finish(url); })
+        .catch(function(err) {
+          console.warn('[receipt] upload failed, using data URL:', err);
+          finish(imagePreview); // fallback to local preview
+        });
+    } else {
+      finish(imagePreview); // demo mode: use data URL
+    }
+  }
+
+  var canSave = !saving && !!projectId && !!date;
+
+  return (
+    <Modal open={true} onClose={onClose} title="ถ่ายรูปบิล / ใบเสร็จ"
+      footer={<>
+        <button className="btn ghost" onClick={onClose}>ยกเลิก</button>
+        <button className="btn primary" onClick={handleSave} disabled={!canSave}>
+          {saving
+            ? <><Icon name="clock" size={14}/> กำลังบันทึก...</>
+            : <><Icon name="check" size={14}/> บันทึกบิล</>}
+        </button>
+      </>}>
+
+      <div style={{display:'flex', flexDirection:'column', gap:'16px'}}>
+
+        {/* Project selector */}
+        <div className="field" style={{margin:0}}>
+          <label>โครงการ <span className="req">*</span></label>
+          <select className="input-base" value={projectId} onChange={function(e){setProjectId(e.target.value);}}>
+            {(openProjects.length > 0 ? openProjects : projects).map(function(p) {
+              return <option key={p.id} value={p.id}>{p.name}</option>;
+            })}
+          </select>
+        </div>
+
+        {/* Date */}
+        <div className="field" style={{margin:0}}>
+          <label>วันที่บิล</label>
+          <input className="input-base" type="date" value={date} onChange={function(e){setDate(e.target.value);}}/>
+        </div>
+
+        {/* Camera capture */}
+        <div className="field" style={{margin:0}}>
+          <label>รูปบิล / ใบเสร็จ</label>
+
+          {imagePreview ? (
+            <div style={{position:'relative', marginBottom:'10px'}}>
+              <img src={imagePreview} alt="ตัวอย่างบิล"
+                style={{width:'100%', maxHeight:'300px', objectFit:'contain',
+                        borderRadius:'var(--r)', border:'1px solid var(--border)',
+                        background:'var(--bg-2)', display:'block'}}/>
+              <button className="btn ghost sm"
+                onClick={function(){setImagePreview(null); setImageFile(null);}}
+                style={{position:'absolute', top:'8px', right:'8px',
+                        background:'rgba(0,0,0,0.65)', borderColor:'transparent',
+                        color:'#fff', padding:'4px 10px'}}>
+                <Icon name="close" size={13}/> เปลี่ยน
+              </button>
+            </div>
+          ) : null}
+
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            style={{display:'none'}}
+            onChange={handleFileChange}
+          />
+          <button className="btn" onClick={function(){fileRef.current && fileRef.current.click();}}>
+            <Icon name="camera" size={16}/>
+            {imagePreview ? 'ถ่ายใหม่ / เปลี่ยนรูป' : 'ถ่ายรูป / เลือกรูปภาพ'}
+          </button>
+          <div className="hint" style={{marginTop:'6px'}}>
+            กดปุ่มนี้เพื่อเปิดกล้องถ่ายรูปบิล หรือเลือกรูปจากอัลบั้ม
+          </div>
+        </div>
+
+        {/* Optional note */}
+        <div className="field" style={{margin:0}}>
+          <label>หมายเหตุ <span className="dim" style={{fontWeight:400}}>(ไม่บังคับ)</span></label>
+          <input className="input-base" placeholder="เช่น วัสดุผนังงวด 3 / ค่าแรงคนงาน"
+            value={note} onChange={function(e){setNote(e.target.value);}}/>
+        </div>
+
+      </div>
+    </Modal>
   );
 }
 

@@ -65,7 +65,8 @@
           isOwner:     m.role === 'owner'
         };
       }),
-      workers: Array.isArray(row.workers) ? row.workers : []
+      workers:       Array.isArray(row.workers) ? row.workers : [],
+      quickReceipts: Array.isArray(row.quick_receipts) ? row.quick_receipts : []
     };
   }
 
@@ -604,6 +605,16 @@
   }
 
   // ─────────────────────────────────────────────
+  // QUICK RECEIPTS — save captured bill photos to projects.quick_receipts
+  // ─────────────────────────────────────────────
+  function saveQuickReceipts(projectId, receipts) {
+    return client.from('projects')
+      .update({ quick_receipts: receipts, updated_at: new Date().toISOString() })
+      .eq('id', projectId)
+      .then(function (res) { if (res.error) throw res.error; });
+  }
+
+  // ─────────────────────────────────────────────
   // PROJECT MEMBERS
   // ─────────────────────────────────────────────
 
@@ -806,7 +817,8 @@
       syncCategories:      syncCategories,
       subscribeToProject:  subscribeToProject,
       unsubscribeProject:  unsubscribeProject,
-      getProjectTransactions: getProjectTransactions
+      getProjectTransactions: getProjectTransactions,
+      saveQuickReceipts:   saveQuickReceipts
     },
     files:   { uploadFile: uploadFile },
     members: {
