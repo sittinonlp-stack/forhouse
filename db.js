@@ -290,9 +290,10 @@
   }
 
   function saveGlobalSettings(userId, settings) {
-    // settings: { global_workers, global_categories, global_category_costs }
-    var row = Object.assign({ id: userId, updated_at: new Date().toISOString() }, settings);
-    return client.from('profiles').upsert(row)
+    // Use UPDATE (not upsert) — profile row always exists (created by handle_new_user trigger).
+    // upsert fires INSERT RLS check first which has no policy → always fails.
+    var row = Object.assign({ updated_at: new Date().toISOString() }, settings);
+    return client.from('profiles').update(row).eq('id', userId)
       .then(function (res) { if (res.error) throw res.error; });
   }
 
