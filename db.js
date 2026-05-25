@@ -289,6 +289,13 @@
       });
   }
 
+  function saveGlobalSettings(userId, settings) {
+    // settings: { global_workers, global_categories, global_category_costs }
+    var row = Object.assign({ id: userId, updated_at: new Date().toISOString() }, settings);
+    return client.from('profiles').upsert(row)
+      .then(function (res) { if (res.error) throw res.error; });
+  }
+
   // ─────────────────────────────────────────────
   // PROJECTS — list + all transactions (for dashboard summaries)
   // ─────────────────────────────────────────────
@@ -783,8 +790,9 @@
       signOut:       signOut,
       getSession:    getSession,
       onAuthChange:  onAuthChange,
-      getProfile:    getProfile,
-      upsertProfile: upsertProfile
+      getProfile:          getProfile,
+      upsertProfile:       upsertProfile,
+      saveGlobalSettings:  saveGlobalSettings
     },
     projects: {
       getProjects:         getProjects,

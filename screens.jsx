@@ -288,21 +288,6 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
     }
   }, [project, onUpdate]);
 
-  const updateCategories = useCallback((kind, cats) => {
-    const np = { ...project, categories: { ...project.categories, [kind]: cats } };
-    onUpdate(np);
-  }, [project, onUpdate]);
-
-  const updateCategoryCost = useCallback((kind, name, cost) => {
-    const all = { ...(project.categoryCosts || {}) };
-    all[kind] = { ...(all[kind] || {}), [name]: Number(cost) || 0 };
-    onUpdate({ ...project, categoryCosts: all });
-  }, [project, onUpdate]);
-
-  const bulkSaveCategories = useCallback((newCats, newCosts) => {
-    onUpdate({ ...project, categories: newCats, categoryCosts: newCosts });
-  }, [project, onUpdate]);
-
   const TABS = [
     { key: 'overview', label: 'ภาพรวม', icon: 'overview' },
     { key: 'income', label: 'รายรับงวดงาน', icon: 'income' },
@@ -312,12 +297,11 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
     { key: 'machine', label: 'เครื่องจักร', icon: 'truck' },
     { key: 'other', label: 'อื่นๆ', icon: 'dots' },
     { key: 'team', label: 'ทีมงาน', icon: 'users' },
-    { key: 'plan', label: 'แผนรายรับ', icon: 'document' },
-    { key: 'categories', label: 'จัดการหมวดหมู่', icon: 'tags' }
+    { key: 'plan', label: 'แผนรายรับ', icon: 'document' }
   ];
 
   const counts = useMemo(() => {
-    const c = { overview: 0, categories: 0 };
+    const c = { overview: 0 };
     for (const k of ALL_KINDS) c[k] = 0;
     for (const t of project.transactions) c[t.kind] = (c[t.kind] || 0) + 1;
     return c;
@@ -350,7 +334,7 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
           ) : null}
           <button className="btn primary" onClick={() => {
             if (tab === 'income') setAddingIncome(true);
-            else if (tab === 'overview' || tab === 'categories') setPOEditor({ kind: 'material' });
+            else if (tab === 'overview' || tab === 'team' || tab === 'plan') setPOEditor({ kind: 'material' });
             else setPOEditor({ kind: tab });
           }}>
             <Icon name="plus" size={16}/> {tab === 'income' ? 'เพิ่มรายรับ' : 'สร้างใบสั่งซื้อ'}
@@ -408,19 +392,17 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
         {TABS.map(t => (
           <button key={t.key} className={tab === t.key ? 'on' : ''} onClick={() => setTab(t.key)}>
             <Icon name={t.icon} size={15}/> {t.label}
-            {t.key !== 'overview' && t.key !== 'categories' ? <span className="count">{counts[t.key] || 0}</span> : null}
+            {t.key !== 'overview' && t.key !== 'team' && t.key !== 'plan' ? <span className="count">{counts[t.key] || 0}</span> : null}
           </button>
         ))}
       </div>
 
       {tab === 'overview' ? (
-        <OverviewTab project={project} agg={agg} onOpenPO={(po) => setPODetail(po)} onGoToCategories={() => setTab('categories')}/>
+        <OverviewTab project={project} agg={agg} onOpenPO={(po) => setPODetail(po)}/>
       ) : tab === 'team' ? (
         <TeamTab project={project} onUpdate={onUpdate} currentRole={currentRole} onDeleteProject={() => setConfirmDeleteProject(true)}/>
       ) : tab === 'plan' ? (
         <IncomePlanTab project={project} onUpdate={onUpdate} currentRole={currentRole}/>
-      ) : tab === 'categories' ? (
-        <CategoriesTab project={project} onBulkSave={bulkSaveCategories} currentRole={currentRole}/>
       ) : tab === 'income' ? (
         <TransactionsTab
           kind={tab}
@@ -518,7 +500,7 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
 }
 
 /* ===== Overview tab ===== */
-function OverviewTab({ project, agg, onOpenPO, onGoToCategories }) {
+function OverviewTab({ project, agg, onOpenPO }) {
   const trend = useMemo(() => monthlyTrend(project.transactions), [project]);
   const recent = useMemo(() => [...project.transactions].sort((a, b) => {
     const d = b.date.localeCompare(a.date);
@@ -642,11 +624,7 @@ function OverviewTab({ project, agg, onOpenPO, onGoToCategories }) {
                   <div className="row gap-8" style={{flexWrap:'wrap'}}>
                     {totalCosts > 0 ? <Badge tone="info">ต้นทุนรวม {formatBaht(totalCosts, {compact:true})} บ.</Badge> : null}
                     {totalBudgetSet > 0 && totalBudgetSet !== totalCosts ? <Badge>งบโครงการ {formatBaht(totalBudgetSet, {compact:true})} บ.</Badge> : null}
-                    {!hasAnyData ? (
-                      <button className="btn sm primary" onClick={onGoToCategories} title="ไปตั้งราคาต้นทุนต่อหมวดย่อย">
-                        <Icon name="plus" size={12}/> ตั้งต้นทุนหมวดงาน
-                      </button>
-                    ) : null}
+                    {!hasAnyData ? null : null}
                   </div>
                 </div>
 
@@ -687,7 +665,7 @@ function OverviewTab({ project, agg, onOpenPO, onGoToCategories }) {
                                 <span>{b - a >= 0 ? <>คงเหลือ {formatBaht(b - a)} บ.</> : <span style={{color:'var(--danger)'}}>เกิน {formatBaht(a - b)} บ.</span>}</span>
                               </>
                             ) : (
-                              <span className="dim">ยังไม่ตั้งต้นทุน · <a onClick={onGoToCategories} style={{color:'var(--brand-bright)', cursor:'pointer', textDecoration:'underline'}}>ตั้งค่า</a></span>
+                              <span className="dim">ยังไม่ตั้งต้นทุน</span>
                             )}
                           </div>
                           <Bar value={a} max={b} tone="auto" thin/>
@@ -1023,206 +1001,6 @@ function TransactionsTab({ kind, project, onAdd, onEdit, onDelete }) {
   );
 }
 
-/* ===== Workers section (Field Workers / ทีมงานภาคสนาม) ===== */
-function WorkersSection({ project, onUpdate, isExec }) {
-  const workers = project.workers || [];
-  const WORKER_TYPES = [
-    { key: 'labor',       label: 'ค่าแรงงาน',     color: '#a78bfa' },
-    { key: 'subcontract', label: 'รับเหมาช่วง',   color: '#fb923c' },
-    { key: 'both',        label: 'ทั้งสองประเภท', color: '#60a5fa' }
-  ];
-
-  const emptyForm = () => ({ id: genId(), name: '', type: 'labor', phone: '', skill: '', ratePerDay: '', note: '' });
-  const [form,   setForm]   = useState(null);  // null = hidden
-  const [editId, setEditId] = useState(null);  // id of worker being edited
-
-  const openAdd  = () => { setForm(emptyForm()); setEditId(null); };
-  const openEdit = (w) => { setForm({ ...w, ratePerDay: w.ratePerDay ? String(w.ratePerDay) : '' }); setEditId(w.id); };
-  const cancel   = () => { setForm(null); setEditId(null); };
-  const setF     = (field, val) => setForm(f => ({ ...f, [field]: val }));
-
-  const save = () => {
-    if (!form || !form.name.trim()) return;
-    const w = {
-      ...form,
-      name:       form.name.trim(),
-      phone:      (form.phone  || '').trim(),
-      skill:      (form.skill  || '').trim(),
-      ratePerDay: parseFloat(String(form.ratePerDay || '').replace(/,/g, '')) || 0,
-      note:       (form.note   || '').trim()
-    };
-    const next = editId
-      ? workers.map(x => x.id === editId ? w : x)
-      : [...workers, w];
-    onUpdate({ ...project, workers: next });
-    cancel();
-    if (window.notify) window.notify(editId ? 'แก้ไขข้อมูลทีมงานแล้ว' : 'เพิ่มทีมงานใหม่แล้ว', 'success');
-  };
-
-  const remove = (id) => {
-    if (!confirm('ลบทีมงานคนนี้ออกจากโครงการ?')) return;
-    onUpdate({ ...project, workers: workers.filter(x => x.id !== id) });
-    if (window.notify) window.notify('ลบทีมงานแล้ว', 'info');
-  };
-
-  return (
-    <div className="mt-24">
-      <div className="between mb-16">
-        <div>
-          <div className="uppercase muted">ทีมงานภาคสนาม</div>
-          <div style={{ fontSize: '15px', fontWeight: 600, marginTop: '2px' }}>
-            {workers.length > 0 ? `${workers.length} คน / ทีม` : 'ยังไม่มีทีมงานภาคสนาม'}
-          </div>
-          <div className="dim" style={{ fontSize: '12px', marginTop: '2px' }}>
-            ทีมงานเหล่านี้สามารถเลือกได้ตอนบันทึกรายจ่ายค่าแรงงานและรับเหมาช่วง
-          </div>
-        </div>
-        {isExec && !form ? (
-          <button className="btn primary" onClick={openAdd}>
-            <Icon name="plus" size={14}/> เพิ่มทีมงาน
-          </button>
-        ) : null}
-      </div>
-
-      {/* Add / Edit form */}
-      {form && isExec ? (
-        <div className="card mb-16" style={{ background: 'var(--brand-soft)', borderColor: 'var(--border-brand)' }}>
-          <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '14px' }}>
-            {editId ? 'แก้ไขข้อมูลทีมงาน' : 'เพิ่มทีมงานใหม่'}
-          </div>
-          <div className="form-grid">
-            <div className="field full">
-              <label>ชื่อ-นามสกุล / ชื่อทีม <span className="req">*</span></label>
-              <input className="input-base" autoFocus
-                placeholder="เช่น นายสมชาย ใจดี, ทีมช่างโย"
-                value={form.name}
-                onChange={e => setF('name', e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') save(); }}/>
-            </div>
-            <div className="field full">
-              <label>ประเภทงาน</label>
-              <div className="role-switcher" style={{ width: '100%' }}>
-                {WORKER_TYPES.map(t => (
-                  <button key={t.key} type="button"
-                    className={form.type === t.key ? 'on' : ''}
-                    style={{ flex: 1, justifyContent: 'center' }}
-                    onClick={() => setF('type', t.key)}>
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="field">
-              <label>ตำแหน่ง / ทักษะ</label>
-              <input className="input-base"
-                placeholder="เช่น ช่างปูน, ช่างไฟ, ช่างไม้"
-                value={form.skill}
-                onChange={e => setF('skill', e.target.value)}/>
-            </div>
-            <div className="field">
-              <label>เบอร์โทรศัพท์</label>
-              <input className="input-base" inputMode="tel"
-                placeholder="0812345678"
-                value={form.phone}
-                onChange={e => setF('phone', e.target.value)}/>
-            </div>
-            <div className="field">
-              <label>อัตราค่าจ้าง (บาท/วัน)</label>
-              <div className="with-suffix">
-                <input className="input-base num-input" inputMode="decimal"
-                  placeholder="0"
-                  value={form.ratePerDay}
-                  onChange={e => setF('ratePerDay', e.target.value)}/>
-                <span className="suffix">บ./วัน</span>
-              </div>
-            </div>
-            <div className="field">
-              <label>หมายเหตุ</label>
-              <input className="input-base"
-                placeholder="บันทึกเพิ่มเติม..."
-                value={form.note}
-                onChange={e => setF('note', e.target.value)}/>
-            </div>
-          </div>
-          <div className="row mt-16" style={{ justifyContent: 'flex-end', gap: '8px' }}>
-            <button className="btn ghost" onClick={cancel}>ยกเลิก</button>
-            <button className="btn primary" onClick={save} disabled={!form.name.trim()}>
-              <Icon name="check" size={14}/> {editId ? 'บันทึกการแก้ไข' : 'เพิ่มทีมงาน'}
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Worker cards */}
-      {workers.length > 0 ? (
-        <div className="worker-card-grid">
-          {workers.map(w => {
-            const wt = WORKER_TYPES.find(t => t.key === w.type) || WORKER_TYPES[0];
-            return (
-              <div key={w.id} className="worker-card">
-                <div className="worker-card-head">
-                  <div className="worker-avatar" style={{ background: wt.color + '22', color: wt.color }}>
-                    {(w.name || '?').charAt(0).toUpperCase()}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="worker-name">{w.name}</div>
-                    <div className="row gap-6" style={{ marginTop: '4px', flexWrap: 'wrap' }}>
-                      <span className="worker-type-badge" style={{ background: wt.color + '22', color: wt.color }}>
-                        {wt.label}
-                      </span>
-                      {w.skill ? <span className="dim" style={{ fontSize: '11.5px' }}>{w.skill}</span> : null}
-                    </div>
-                  </div>
-                  {isExec ? (
-                    <div className="row gap-4">
-                      <button className="icon-btn" onClick={() => openEdit(w)} title="แก้ไข">
-                        <Icon name="edit" size={13}/>
-                      </button>
-                      <button className="icon-btn danger" onClick={() => remove(w.id)} title="ลบ">
-                        <Icon name="trash" size={13}/>
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-                {(w.phone || w.ratePerDay > 0 || w.note) ? (
-                  <div className="worker-card-body">
-                    {w.phone ? (
-                      <div className="worker-info-row">
-                        <Icon name="phone" size={12}/> <span>{w.phone}</span>
-                      </div>
-                    ) : null}
-                    {w.ratePerDay > 0 ? (
-                      <div className="worker-info-row">
-                        <Icon name="wallet" size={12}/> <span className="mono">{formatBaht(w.ratePerDay)} บ./วัน</span>
-                      </div>
-                    ) : null}
-                    {w.note ? (
-                      <div className="worker-info-row dim">
-                        <Icon name="info" size={12}/> <span>{w.note}</span>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      ) : !form ? (
-        <Empty
-          icon="users"
-          title="ยังไม่มีทีมงานภาคสนาม"
-          hint="เพิ่มข้อมูลทีมงาน เพื่อเลือกได้อย่างสะดวกตอนบันทึกรายจ่ายค่าแรงงาน/รับเหมาช่วง"
-          action={isExec ? (
-            <button className="btn primary sm" onClick={openAdd}>
-              <Icon name="plus" size={14}/> เพิ่มทีมงานคนแรก
-            </button>
-          ) : null}
-        />
-      ) : null}
-    </div>
-  );
-}
-
 /* ===== Team tab ===== */
 function TeamTab({ project, onUpdate, currentRole, onDeleteProject }) {
   const isExec  = (ROLES[currentRole] || ROLES.staff).canManageTeam;
@@ -1477,9 +1255,6 @@ function TeamTab({ project, onUpdate, currentRole, onDeleteProject }) {
           action={isExec ? <button className="btn primary sm" onClick={() => setAdding(true)}><Icon name="plus" size={14}/> เพิ่มสมาชิกคนแรก</button> : null}
         />
       ) : null}
-
-      {/* ── ทีมงานภาคสนาม ── */}
-      <WorkersSection project={project} onUpdate={onUpdate} isExec={isExec}/>
 
       {/* Danger Zone — Delete Project (executive only) */}
       {isExec && onDeleteProject ? (
@@ -1782,6 +1557,427 @@ function CategoriesTab({ project, onBulkSave, currentRole }) {
                   </div>
                 );
               })()}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   GLOBAL WORKERS SCREEN — ทีมช่าง (ข้อมูลส่วนกลาง)
+   ============================================================ */
+function GlobalWorkersScreen({ workers, onUpdate, currentRole }) {
+  const isExec = (ROLES[currentRole] || ROLES.staff).canManageTeam;
+  const WORKER_TYPES = [
+    { key: 'labor',       label: 'ค่าแรงงาน',     color: '#a78bfa' },
+    { key: 'subcontract', label: 'รับเหมาช่วง',   color: '#fb923c' },
+    { key: 'both',        label: 'ทั้งสองประเภท', color: '#60a5fa' }
+  ];
+
+  const emptyForm = () => ({ id: genId(), name: '', type: 'labor', phone: '', skill: '', ratePerDay: '' });
+  const [form,   setForm]   = useState(null);
+  const [editId, setEditId] = useState(null);
+
+  const openAdd  = () => { setForm(emptyForm()); setEditId(null); };
+  const openEdit = (w) => { setForm({ ...w, ratePerDay: w.ratePerDay ? String(w.ratePerDay) : '' }); setEditId(w.id); };
+  const cancel   = () => { setForm(null); setEditId(null); };
+  const setF     = (field, val) => setForm(f => ({ ...f, [field]: val }));
+
+  const save = () => {
+    if (!form || !form.name.trim()) return;
+    const w = {
+      ...form,
+      name:       form.name.trim(),
+      phone:      (form.phone  || '').trim(),
+      skill:      (form.skill  || '').trim(),
+      ratePerDay: parseFloat(String(form.ratePerDay || '').replace(/,/g, '')) || 0
+    };
+    const next = editId
+      ? workers.map(x => x.id === editId ? w : x)
+      : [...workers, w];
+    onUpdate(next);
+    cancel();
+    if (window.notify) window.notify(editId ? 'แก้ไขข้อมูลทีมช่างแล้ว' : 'เพิ่มทีมช่างใหม่แล้ว', 'success');
+  };
+
+  const remove = (id) => {
+    if (!confirm('ลบทีมช่างคนนี้ออก?')) return;
+    onUpdate(workers.filter(x => x.id !== id));
+    if (window.notify) window.notify('ลบทีมช่างแล้ว', 'info');
+  };
+
+  return (
+    <div>
+      <div className="page-header">
+        <div className="titles">
+          <h1>ทีมช่าง</h1>
+          <div className="sub">ข้อมูลส่วนกลาง · ใช้ได้กับทุกโครงการ เมื่อบันทึกค่าแรงงานและรับเหมาช่วง</div>
+        </div>
+        {isExec && !form ? (
+          <div className="page-actions">
+            <button className="btn primary" onClick={openAdd}>
+              <Icon name="plus" size={16}/> เพิ่มทีมช่าง
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Add / Edit form */}
+      {form && isExec ? (
+        <div className="card mb-16" style={{ background: 'var(--brand-soft)', borderColor: 'var(--border-brand)' }}>
+          <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '14px' }}>
+            {editId ? 'แก้ไขข้อมูลทีมช่าง' : 'เพิ่มทีมช่างใหม่'}
+          </div>
+          <div className="form-grid">
+            <div className="field full">
+              <label>ชื่อ-นามสกุล / ชื่อทีม <span className="req">*</span></label>
+              <input className="input-base" autoFocus
+                placeholder="เช่น นายสมชาย ใจดี, ทีมช่างโย"
+                value={form.name}
+                onChange={e => setF('name', e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') save(); }}/>
+            </div>
+            <div className="field full">
+              <label>ประเภทงาน</label>
+              <div className="role-switcher" style={{ width: '100%' }}>
+                {WORKER_TYPES.map(t => (
+                  <button key={t.key} type="button"
+                    className={form.type === t.key ? 'on' : ''}
+                    style={{ flex: 1, justifyContent: 'center' }}
+                    onClick={() => setF('type', t.key)}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="field">
+              <label>ตำแหน่ง / ทักษะ</label>
+              <input className="input-base"
+                placeholder="เช่น ช่างปูน, ช่างไฟ, ช่างไม้"
+                value={form.skill}
+                onChange={e => setF('skill', e.target.value)}/>
+            </div>
+            <div className="field">
+              <label>เบอร์โทรศัพท์</label>
+              <input className="input-base" inputMode="tel"
+                placeholder="0812345678"
+                value={form.phone}
+                onChange={e => setF('phone', e.target.value)}/>
+            </div>
+            <div className="field">
+              <label>อัตราค่าจ้าง (บาท/วัน)</label>
+              <div className="with-suffix">
+                <input className="input-base num-input" inputMode="decimal"
+                  placeholder="0"
+                  value={form.ratePerDay}
+                  onChange={e => setF('ratePerDay', e.target.value)}/>
+                <span className="suffix">บ./วัน</span>
+              </div>
+            </div>
+          </div>
+          <div className="row mt-16" style={{ justifyContent: 'flex-end', gap: '8px' }}>
+            <button className="btn ghost" onClick={cancel}>ยกเลิก</button>
+            <button className="btn primary" onClick={save} disabled={!form.name.trim()}>
+              <Icon name="check" size={14}/> {editId ? 'บันทึกการแก้ไข' : 'เพิ่มทีมช่าง'}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Worker cards */}
+      {workers.length > 0 ? (
+        <div className="worker-card-grid">
+          {workers.map(w => {
+            const wt = WORKER_TYPES.find(t => t.key === w.type) || WORKER_TYPES[0];
+            return (
+              <div key={w.id} className="worker-card">
+                <div className="worker-card-head">
+                  <div className="worker-avatar" style={{ background: wt.color + '22', color: wt.color }}>
+                    {(w.name || '?').charAt(0).toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="worker-name">{w.name}</div>
+                    <div className="row gap-6" style={{ marginTop: '4px', flexWrap: 'wrap' }}>
+                      <span className="worker-type-badge" style={{ background: wt.color + '22', color: wt.color }}>
+                        {wt.label}
+                      </span>
+                      {w.skill ? <span className="dim" style={{ fontSize: '11.5px' }}>{w.skill}</span> : null}
+                    </div>
+                  </div>
+                  {isExec ? (
+                    <div className="row gap-4">
+                      <button className="icon-btn" onClick={() => openEdit(w)} title="แก้ไข">
+                        <Icon name="edit" size={13}/>
+                      </button>
+                      <button className="icon-btn danger" onClick={() => remove(w.id)} title="ลบ">
+                        <Icon name="trash" size={13}/>
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                {(w.phone || w.ratePerDay > 0) ? (
+                  <div className="worker-card-body">
+                    {w.phone ? (
+                      <div className="worker-info-row">
+                        <Icon name="phone" size={12}/> <span>{w.phone}</span>
+                      </div>
+                    ) : null}
+                    {w.ratePerDay > 0 ? (
+                      <div className="worker-info-row">
+                        <Icon name="wallet" size={12}/> <span className="mono">{formatBaht(w.ratePerDay)} บ./วัน</span>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : !form ? (
+        <Empty
+          icon="users"
+          title="ยังไม่มีทีมช่าง"
+          hint="เพิ่มข้อมูลทีมช่าง เพื่อเลือกได้อย่างสะดวกตอนบันทึกรายจ่ายค่าแรงงาน/รับเหมาช่วงทุกโครงการ"
+          action={isExec ? (
+            <button className="btn primary sm" onClick={openAdd}>
+              <Icon name="plus" size={14}/> เพิ่มทีมช่างคนแรก
+            </button>
+          ) : null}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/* ============================================================
+   GLOBAL CATEGORIES SCREEN — หมวดหมู่งาน (ข้อมูลส่วนกลาง)
+   ============================================================ */
+function GlobalCategoriesScreen({ categories, categoryCosts, onUpdate, currentRole }) {
+  const canEdit = (ROLES[currentRole] || ROLES.staff).canManageCategories;
+
+  const initialCats  = () => JSON.parse(JSON.stringify(categories  || {}));
+  const initialCosts = () => JSON.parse(JSON.stringify(categoryCosts || {}));
+  const [draftCats,  setDraftCats]  = useState(initialCats);
+  const [draftCosts, setDraftCosts] = useState(initialCosts);
+  const [adding,  setAdding]  = useState({ kind: null, name: '' });
+  const [editing, setEditing] = useState({ kind: null, oldName: '', newName: '' });
+  const [saving,  setSaving]  = useState(false);
+  const [savedAt, setSavedAt] = useState(null);
+
+  // Resync when props change (e.g. loaded from DB)
+  useEffect(() => {
+    setDraftCats(initialCats());
+    setDraftCosts(initialCosts());
+    setAdding({ kind: null, name: '' });
+    setEditing({ kind: null, oldName: '', newName: '' });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(categories), JSON.stringify(categoryCosts)]);
+
+  const dirty = useMemo(() => (
+    JSON.stringify(draftCats)  !== JSON.stringify(categories  || {}) ||
+    JSON.stringify(draftCosts) !== JSON.stringify(categoryCosts || {})
+  ), [draftCats, draftCosts, categories, categoryCosts]);
+
+  const addCat = (kind) => {
+    const name = adding.name.trim();
+    if (!name) return;
+    const list = draftCats[kind] || [];
+    if (list.includes(name)) { setAdding({kind:null, name:''}); return; }
+    setDraftCats({ ...draftCats, [kind]: [...list, name] });
+    setAdding({ kind: null, name: '' });
+  };
+
+  const removeCat = (kind, name) => {
+    if (!window.confirm(`ลบหมวด "${name}" ออกจากรายการทั้งหมด?`)) return;
+    setDraftCats({ ...draftCats, [kind]: (draftCats[kind] || []).filter(c => c !== name) });
+    const nextCosts = { ...(draftCosts[kind] || {}) };
+    delete nextCosts[name];
+    setDraftCosts({ ...draftCosts, [kind]: nextCosts });
+  };
+
+  const saveEdit = () => {
+    const newName = editing.newName.trim();
+    if (!newName || newName === editing.oldName) { setEditing({kind:null, oldName:'', newName:''}); return; }
+    const list = (draftCats[editing.kind] || []).map(c => c === editing.oldName ? newName : c);
+    setDraftCats({ ...draftCats, [editing.kind]: list });
+    const kindCosts = { ...(draftCosts[editing.kind] || {}) };
+    if (Object.prototype.hasOwnProperty.call(kindCosts, editing.oldName)) {
+      kindCosts[newName] = kindCosts[editing.oldName];
+      delete kindCosts[editing.oldName];
+    }
+    setDraftCosts({ ...draftCosts, [editing.kind]: kindCosts });
+    setEditing({ kind: null, oldName: '', newName: '' });
+  };
+
+  const setCost = (kind, name, cost) => {
+    const kindCosts = { ...(draftCosts[kind] || {}), [name]: Number(cost) || 0 };
+    setDraftCosts({ ...draftCosts, [kind]: kindCosts });
+  };
+
+  const resetDraft = () => {
+    setDraftCats(initialCats());
+    setDraftCosts(initialCosts());
+    setAdding({ kind: null, name: '' });
+    setEditing({ kind: null, oldName: '', newName: '' });
+  };
+
+  const saveAll = () => {
+    if (!dirty || saving) return;
+    setSaving(true);
+    onUpdate({ categories: draftCats, categoryCosts: draftCosts });
+    setTimeout(() => {
+      setSaving(false);
+      setSavedAt(Date.now());
+      if (window.notify) window.notify('บันทึกหมวดหมู่งานเรียบร้อย', 'success');
+      setTimeout(() => setSavedAt(null), 2400);
+    }, 250);
+  };
+
+  return (
+    <div>
+      <div className="page-header">
+        <div className="titles">
+          <h1>หมวดหมู่งาน</h1>
+          <div className="sub">ข้อมูลส่วนกลาง · ใช้ได้กับทุกโครงการ</div>
+        </div>
+        {canEdit ? (
+          <div className="page-actions">
+            <button className="btn ghost" onClick={resetDraft} disabled={!dirty || saving}>
+              <Icon name="refresh" size={14}/> ยกเลิก
+            </button>
+            <button className="btn primary" onClick={saveAll} disabled={!dirty || saving}>
+              <Icon name="check" size={14}/> {saving ? 'กำลังบันทึก...' : 'บันทึกทั้งหมด'}
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {canEdit ? (
+        <Alert tone="info" icon="info">
+          <strong>จัดการหมวดหมู่ย่อยส่วนกลาง</strong>
+          <p>หมวดหมู่เหล่านี้จะใช้กับทุกโครงการ — เพิ่ม แก้ไข ลบ และกำหนดต้นทุนเป้าหมาย แล้วกด <strong>บันทึกทั้งหมด</strong></p>
+        </Alert>
+      ) : (
+        <Alert tone="warn" icon="info">
+          <strong>ดูหมวดหมู่ย่อยเท่านั้น</strong> — เฉพาะผู้จัดการและผู้บริหารสามารถเพิ่ม แก้ไข หรือลบหมวดหมู่ได้
+        </Alert>
+      )}
+
+      {/* Dirty indicator */}
+      {dirty && canEdit ? (
+        <div className="card tight mb-16" style={{
+          padding:'10px 14px', display:'flex', alignItems:'center', justifyContent:'space-between',
+          flexWrap:'wrap', gap:'12px',
+          background: 'rgba(251,191,36,.08)', borderColor: 'rgba(251,191,36,.35)'
+        }}>
+          <div className="row gap-8" style={{fontSize:'13px'}}>
+            <Icon name="warn" size={14} style={{color:'var(--warn)'}}/>
+            <span><strong>มีการเปลี่ยนแปลงที่ยังไม่ได้บันทึก</strong> — กดบันทึกทั้งหมดเพื่อยืนยัน</span>
+          </div>
+          <div className="row gap-8">
+            <button className="btn ghost sm" onClick={resetDraft} disabled={saving}>
+              <Icon name="refresh" size={13}/> ยกเลิก
+            </button>
+            <button className="btn primary" onClick={saveAll} disabled={saving}>
+              <Icon name="check" size={14}/> บันทึกทั้งหมด
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(320px, 1fr))', gap:'16px'}}>
+        {ALL_KINDS.map(kind => {
+          const meta = KINDS[kind];
+          const list = draftCats[kind] || [];
+          const kindCostMap = draftCosts[kind] || {};
+          return (
+            <div key={kind} className="card">
+              <div className="between mb-16">
+                <div className="row gap-8">
+                  <div className="value-with-icon">
+                    <div className="ic" style={{width:'32px', height:'32px', background: meta.color + '20', color: meta.color}}>
+                      <KindIcon kind={kind} size={16}/>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:'14px', fontWeight:600}}>{meta.short}</div>
+                    <div className="dim" style={{fontSize:'11.5px'}}>{list.length} หมวดย่อย</div>
+                  </div>
+                </div>
+                {canEdit ? (
+                  <button className="btn sm" onClick={() => setAdding({ kind, name: '' })}>
+                    <Icon name="plus" size={12}/> เพิ่ม
+                  </button>
+                ) : null}
+              </div>
+              <div className="col gap-6">
+                {list.map(name => {
+                  const isEditing = editing.kind === kind && editing.oldName === name;
+                  const cost = (kindCostMap[name]) || 0;
+                  return (
+                    <div key={name} style={{padding:'8px 10px', background:'var(--bg-2)', borderRadius:'var(--r-sm)'}}>
+                      {isEditing && canEdit ? (
+                        <div className="row" style={{justifyContent:'space-between'}}>
+                          <input className="input-base" autoFocus value={editing.newName}
+                            onChange={e => setEditing({...editing, newName: e.target.value})}
+                            onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing({kind:null, oldName:'', newName:''}); }}
+                            style={{padding:'4px 8px', fontSize:'13px'}}/>
+                          <div className="row gap-4">
+                            <button className="icon-btn" onClick={saveEdit} title="บันทึก"><Icon name="check" size={14}/></button>
+                            <button className="icon-btn" onClick={() => setEditing({kind:null, oldName:'', newName:''})}><Icon name="close" size={14}/></button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="row" style={{justifyContent:'space-between', alignItems:'center'}}>
+                          <div className="row gap-8" style={{minWidth:0, flex:1, alignItems:'center'}}>
+                            <span style={{fontSize:'13px', fontWeight:500}}>{name}</span>
+                            {cost > 0 ? (
+                              <span className="dim mono" style={{fontSize:'11px'}}>{formatBaht(cost)} บ.</span>
+                            ) : null}
+                          </div>
+                          {canEdit ? (
+                            <div className="row gap-4">
+                              <button className="icon-btn" onClick={() => setEditing({ kind, oldName: name, newName: name })} title="แก้ไข">
+                                <Icon name="edit" size={13}/>
+                              </button>
+                              {canEdit ? (
+                                <div className="with-suffix" style={{width:'96px'}}>
+                                  <input className="input-base num-input mono" inputMode="decimal" placeholder="0"
+                                    value={cost === 0 ? '' : formatNumberInput(String(cost))}
+                                    onChange={e => setCost(kind, name, parseNumberInput(formatNumberInput(e.target.value)))}
+                                    style={{padding:'3px 6px', fontSize:'11px'}}
+                                    title="ต้นทุนเป้าหมาย (บ.)"/>
+                                  <span className="suffix" style={{fontSize:'10px'}}>บ.</span>
+                                </div>
+                              ) : null}
+                              <button className="icon-btn danger" onClick={() => removeCat(kind, name)} title="ลบ">
+                                <Icon name="trash" size={13}/>
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {adding.kind === kind && canEdit ? (
+                  <div className="row gap-4" style={{padding:'8px 10px', background:'var(--brand-soft)', borderRadius:'var(--r-sm)'}}>
+                    <input className="input-base" autoFocus placeholder="ชื่อหมวดหมู่ใหม่..."
+                      value={adding.name} onChange={e => setAdding({...adding, name: e.target.value})}
+                      onKeyDown={e => { if (e.key === 'Enter') addCat(kind); if (e.key === 'Escape') setAdding({kind:null,name:''}); }}
+                      style={{padding:'5px 8px', fontSize:'13px'}}/>
+                    <button className="icon-btn" onClick={() => addCat(kind)}><Icon name="check" size={14}/></button>
+                    <button className="icon-btn" onClick={() => setAdding({kind:null, name:''})}><Icon name="close" size={14}/></button>
+                  </div>
+                ) : null}
+                {list.length === 0 && adding.kind !== kind ? (
+                  <div className="dim" style={{padding:'12px', textAlign:'center', fontSize:'12.5px'}}>
+                    ยังไม่มีหมวดหมู่ย่อย
+                  </div>
+                ) : null}
+              </div>
             </div>
           );
         })}

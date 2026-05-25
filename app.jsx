@@ -150,16 +150,20 @@ function App() {
     }
     return [];
   });
-  var [projectsLoading, setProjectsLoading] = useState(false);
-  var [view,            setView]            = useState({ name: 'dashboard' });
-  var [theme,           setTheme]           = useState('a');
-  var [sidebarOpen,     setSidebarOpen]     = useState(false);
-  var [newProjOpen,     setNewProjOpen]     = useState(false);
-  var [search,          setSearch]          = useState('');
-  var [currentRole,     setCurrentRole]     = useState('executive');
-  var [syncError,       setSyncError]       = useState('');
-  var [toasts,          setToasts]          = useState([]);
-  var [showLogin,       setShowLogin]       = useState(false); // show login overlay
+  var [projectsLoading,    setProjectsLoading]    = useState(false);
+  var [view,               setView]               = useState({ name: 'dashboard' });
+  var [theme,              setTheme]              = useState('a');
+  var [sidebarOpen,        setSidebarOpen]        = useState(false);
+  var [newProjOpen,        setNewProjOpen]        = useState(false);
+  var [search,             setSearch]             = useState('');
+  var [currentRole,        setCurrentRole]        = useState('executive');
+  var [syncError,          setSyncError]          = useState('');
+  var [toasts,             setToasts]             = useState([]);
+  var [showLogin,          setShowLogin]          = useState(false);
+  // ── Global settings (shared across all projects) ─
+  var [globalWorkers,        setGlobalWorkers]        = useState([]);
+  var [globalCategories,     setGlobalCategories]     = useState({});
+  var [globalCategoryCosts,  setGlobalCategoryCosts]  = useState({});
 
   // ── Toast notifications ──────────────────────────────
   var notify = useCallback(function(message, type) {
@@ -219,6 +223,22 @@ function App() {
             canViewBalance: ['owner','admin','executive'].includes(role)
           };
           setCurrentRole(role === 'owner' || role === 'admin' ? 'executive' : role === 'manager' ? 'manager' : 'staff');
+          // Load global settings from profile
+          if (Array.isArray(p.global_workers) && p.global_workers.length > 0) {
+            setGlobalWorkers(p.global_workers);
+          }
+          if (p.global_categories && Object.keys(p.global_categories).length > 0) {
+            setGlobalCategories(p.global_categories);
+          } else {
+            // Seed with defaults on first load
+            setGlobalCategories(JSON.parse(JSON.stringify(window.DEFAULT_CATS)));
+          }
+          if (p.global_category_costs && Object.keys(p.global_category_costs).length > 0) {
+            setGlobalCategoryCosts(p.global_category_costs);
+          }
+        } else {
+          // No profile yet — seed categories from defaults
+          setGlobalCategories(JSON.parse(JSON.stringify(window.DEFAULT_CATS)));
         }
         setAuthLoading(false);
         setLiveMode(true);
@@ -259,6 +279,8 @@ function App() {
   function handleDemoLogin() {
     window.CURRENT_USER = { id: 'demo', name: 'ผู้ใช้ Demo', role: 'executive', canApprove: true, canViewBalance: true };
     setProjects(JSON.parse(JSON.stringify(window.SAMPLE_PROJECTS)));
+    // Seed global categories from defaults in demo mode
+    setGlobalCategories(JSON.parse(JSON.stringify(window.DEFAULT_CATS)));
     setShowLogin(false);
     setAuthLoading(false);
   }
@@ -484,6 +506,36 @@ function App() {
       });
   }, [user, liveMode]);
 
+  // ── Global settings mutations ────────────────────
+  var updateGlobalWorkers = useCallback(function(newWorkers) {
+    setGlobalWorkers(newWorkers);
+    if (liveMode && _dbReady && user) {
+      window.db.auth.saveGlobalSettings(user.id, { global_workers: newWorkers })
+        .catch(function(err) {
+          console.error('[global] save workers error:', err);
+          setSyncError('บันทึกทีมช่างไม่สำเร็จ: ' + (err.message || err));
+          setTimeout(function() { setSyncError(''); }, 8000);
+        });
+    }
+  }, [user, liveMode]);
+
+  var updateGlobalCategories = useCallback(function(payload) {
+    var newCats  = payload.categories     || globalCategories;
+    var newCosts = payload.categoryCosts  || globalCategoryCosts;
+    setGlobalCategories(newCats);
+    setGlobalCategoryCosts(newCosts);
+    if (liveMode && _dbReady && user) {
+      window.db.auth.saveGlobalSettings(user.id, {
+        global_categories:      newCats,
+        global_category_costs:  newCosts
+      }).catch(function(err) {
+        console.error('[global] save categories error:', err);
+        setSyncError('บันทึกหมวดหมู่ไม่สำเร็จ: ' + (err.message || err));
+        setTimeout(function() { setSyncError(''); }, 8000);
+      });
+    }
+  }, [user, liveMode, globalCategories, globalCategoryCosts]);
+
   function handleSignOut() {
     if (liveMode && _dbReady) {
       window.db.auth.signOut().catch(function(err) { console.error(err); });
@@ -493,6 +545,26 @@ function App() {
   }
 
   var currentProject = view.projectId ? projects.find(function(p) { return p.id === view.projectId; }) : null;
+
+  // Overlay global workers & categories onto the current project
+  // so all child components (POEditorModal, TransactionModal, etc.) use them transparently
+  var currentProjectWithGlobal = useMemo(function() {
+    if (!currentProject) return null;
+    var effectiveCats = (globalCategories && Object.keys(globalCategories).length > 0)
+      ? globalCategories
+      : (currentProject.categories && Object.keys(currentProject.categories).some(function(k){ return (currentProject.categories[k]||[]).length > 0; })
+          ? currentProject.categories
+          : JSON.parse(JSON.stringify(window.DEFAULT_CATS)));
+    var effectiveCosts = (globalCategoryCosts && Object.keys(globalCategoryCosts).length > 0)
+      ? globalCategoryCosts
+      : currentProject.categoryCosts;
+    return Object.assign({}, currentProject, {
+      categories:     effectiveCats,
+      categoryCosts:  effectiveCosts,
+      workers:        globalWorkers.length > 0 ? globalWorkers : (currentProject.workers || [])
+    });
+  }, [currentProject, globalWorkers, globalCategories, globalCategoryCosts]);
+
   var goto = function(v) { setView(v); setSidebarOpen(false); };
 
   var filteredProjects = useMemo(function() {
@@ -581,6 +653,15 @@ function App() {
               );
             })}
             {filteredProjects.length === 0 ? <div className="dim" style={{padding:'8px 12px',fontSize:'12px'}}>ไม่พบโครงการ</div> : null}
+            <div className="sidebar-section-label">ข้อมูลส่วนกลาง</div>
+            <button className={'nav-item ' + (view.name === 'globalCategories' ? 'active' : '')}
+              onClick={function(){goto({name:'globalCategories'});}}>
+              <Icon name="tags" size={16}/> <span>หมวดหมู่งาน</span>
+            </button>
+            <button className={'nav-item ' + (view.name === 'globalWorkers' ? 'active' : '')}
+              onClick={function(){goto({name:'globalWorkers'});}}>
+              <Icon name="users" size={16}/> <span>ทีมช่าง</span>
+            </button>
             <div className="sidebar-section-label">เครื่องมือ</div>
             <button className="nav-item" onClick={function(){setNewProjOpen(true);}}>
               <Icon name="plus" size={16}/> <span>เพิ่มโครงการใหม่</span>
@@ -615,12 +696,12 @@ function App() {
             </button>
             <div className="crumbs">
               <button onClick={function(){goto({name:'dashboard'});}}>หน้าแรก</button>
-              {view.name === 'project' && currentProject ? (<>
+              {view.name === 'project' && currentProjectWithGlobal ? (<>
                 <span className="sep">/</span>
-                <strong className="ellipsis">{currentProject.name}</strong>
-              </>) : view.name === 'balance' && currentProject ? (<>
+                <strong className="ellipsis">{currentProjectWithGlobal.name}</strong>
+              </>) : view.name === 'balance' && currentProjectWithGlobal ? (<>
                 <span className="sep">/</span>
-                <button onClick={function(){goto({name:'project',projectId:currentProject.id});}}>{currentProject.name}</button>
+                <button onClick={function(){goto({name:'project',projectId:currentProjectWithGlobal.id});}}>{currentProjectWithGlobal.name}</button>
                 <span className="sep">/</span>
                 <strong>งบดุล</strong>
               </>) : view.name === 'allBalance' ? (<>
@@ -629,6 +710,12 @@ function App() {
               </>) : view.name === 'monthlyPlan' ? (<>
                 <span className="sep">/</span>
                 <strong>แผนรายรับรายเดือน</strong>
+              </>) : view.name === 'globalCategories' ? (<>
+                <span className="sep">/</span>
+                <strong>หมวดหมู่งาน</strong>
+              </>) : view.name === 'globalWorkers' ? (<>
+                <span className="sep">/</span>
+                <strong>ทีมช่าง</strong>
               </>) : null}
             </div>
             <div className="spacer"></div>
@@ -692,20 +779,33 @@ function App() {
               onBack={function(){goto({name:'dashboard'});}}
               currentRole={currentRole}
             />
-          ) : view.name === 'project' && currentProject ? (
+          ) : view.name === 'project' && currentProjectWithGlobal ? (
             <ProjectView
-              project={currentProject}
+              project={currentProjectWithGlobal}
               onBack={function(){goto({name:'dashboard'});}}
               onUpdate={updateProject}
-              onDelete={function(){ removeProject(currentProject.id); goto({name:'dashboard'}); }}
-              onOpenBalance={function(){goto({name:'balance',projectId:currentProject.id});}}
-              currentRole={getEffectiveRole(currentProject, cu.name, currentRole)}
+              onDelete={function(){ removeProject(currentProjectWithGlobal.id); goto({name:'dashboard'}); }}
+              onOpenBalance={function(){goto({name:'balance',projectId:currentProjectWithGlobal.id});}}
+              currentRole={getEffectiveRole(currentProjectWithGlobal, cu.name, currentRole)}
             />
-          ) : view.name === 'balance' && currentProject ? (
+          ) : view.name === 'balance' && currentProjectWithGlobal ? (
             <BalanceSheet
-              project={currentProject}
-              onBack={function(){goto({name:'project',projectId:currentProject.id});}}
-              currentRole={getEffectiveRole(currentProject, cu.name, currentRole)}
+              project={currentProjectWithGlobal}
+              onBack={function(){goto({name:'project',projectId:currentProjectWithGlobal.id});}}
+              currentRole={getEffectiveRole(currentProjectWithGlobal, cu.name, currentRole)}
+            />
+          ) : view.name === 'globalCategories' ? (
+            <GlobalCategoriesScreen
+              categories={globalCategories}
+              categoryCosts={globalCategoryCosts}
+              onUpdate={updateGlobalCategories}
+              currentRole={currentRole}
+            />
+          ) : view.name === 'globalWorkers' ? (
+            <GlobalWorkersScreen
+              workers={globalWorkers}
+              onUpdate={updateGlobalWorkers}
+              currentRole={currentRole}
             />
           ) : (
             <Empty title="ไม่พบหน้าที่ต้องการ" icon="warn"
