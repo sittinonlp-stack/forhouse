@@ -2252,6 +2252,345 @@ function GlobalPresetsScreen({ presets, onUpdate, currentRole }) {
 }
 
 /* ============================================================
+   DEPOSIT TRACKING SCREEN — ประกันผลงานค้างจ่าย
+   Aggregates all labor/subcontract retentionAmount and
+   material/machine deposit items across every project.
+   ============================================================ */
+function DepositTrackingScreen({ projects, onUpdateProject, currentRole }) {
+  const canMarkReturn = (ROLES[currentRole] || ROLES.staff).canApprove;
+  const [filter,      setFilter]      = useState('pending'); // 'all' | 'pending' | 'returned'
+  const [returnModal, setReturnModal] = useState(null);      // item object
+  const [returnDate,  setReturnDate]  = useState(() => new Date().toISOString().slice(0,10));
+  const [returnNote,  setReturnNote]  = useState('');
+
+  // How many projects haven't been fully loaded yet
+  const unloadedCount = projects.filter(p => !Array.isArray(p.transactions)).length;
+
+  // Aggregate all retention + deposit items across loaded projects
+  const allItems = useMemo(() => {
+    const result = [];
+    projects.forEach(project => {
+      if (!Array.isArray(project.transactions)) return;
+      project.transactions.forEach(po => {
+        // Labor / subcontract — เงินหักประกันผลงานช่าง
+        if ((po.kind === 'labor' || po.kind === 'subcontract') && (po.retentionAmount || 0) > 0) {
+          const ret   = po.retentionReturn || {};
+          const isRet = !!(ret.returnedDate);
+          result.push({
+            key:          po.id + '-ret',
+            type:         'retention',
+            typeLabel:    'ประกันผลงานช่าง',
+            kind:         po.kind,
+            project,
+            po,
+            amount:       po.retentionAmount,
+            vendor:       po.vendor || '— ไม่ระบุ —',
+            isReturned:   isRet,
+            returnedDate: isRet ? ret.returnedDate : null,
+            returnNote:   isRet ? (ret.note || '') : ''
+          });
+        }
+        // Material / machine — เงินประกันวัสดุ / เครื่องจักร
+        if ((po.kind === 'material' || po.kind === 'machine') && po.deposit && (po.deposit.amount || 0) > 0) {
+          const isRet = po.deposit.status === 'returned';
+          result.push({
+            key:          po.id + '-dep',
+            type:         'deposit',
+            typeLabel:    po.kind === 'material' ? 'ประกันวัสดุ' : 'ประกันเครื่องจักร',
+            kind:         po.kind,
+            project,
+            po,
+            amount:       po.deposit.amount,
+            vendor:       po.vendor || '— ไม่ระบุ —',
+            isReturned:   isRet,
+            returnedDate: isRet ? (po.deposit.returnedDate || null) : null,
+            returnNote:   isRet ? (po.deposit.returnSlip || '') : ''
+          });
+        }
+      });
+    });
+    // Sort: pending first, then by date desc within each group
+    result.sort((a, b) => {
+      if (a.isReturned !== b.isReturned) return a.isReturned ? 1 : -1;
+      return (b.po.date || '').localeCompare(a.po.date || '');
+    });
+    return result;
+  }, [projects]);
+
+  const pendingItems   = useMemo(() => allItems.filter(x => !x.isReturned), [allItems]);
+  const returnedItems  = useMemo(() => allItems.filter(x =>  x.isReturned), [allItems]);
+  const pendingAmount  = pendingItems.reduce((s, x) => s + x.amount, 0);
+  const returnedAmount = returnedItems.reduce((s, x) => s + x.amount, 0);
+
+  const filteredItems = useMemo(() => {
+    if (filter === 'pending')  return pendingItems;
+    if (filter === 'returned') return returnedItems;
+    return allItems;
+  }, [allItems, pendingItems, returnedItems, filter]);
+
+  // Group pending by vendor — for the summary cards
+  const groupedByVendor = useMemo(() => {
+    const g = {};
+    pendingItems.forEach(item => {
+      const v = item.vendor;
+      if (!g[v]) g[v] = { vendor: v, items: [], total: 0 };
+      g[v].items.push(item);
+      g[v].total += item.amount;
+    });
+    return Object.values(g).sort((a, b) => b.total - a.total);
+  }, [pendingItems]);
+
+  const openReturnModal = (item) => {
+    setReturnModal(item);
+    setReturnDate(new Date().toISOString().slice(0,10));
+    setReturnNote('');
+  };
+
+  const doMarkReturn = () => {
+    if (!returnModal) return;
+    const { project, po, type } = returnModal;
+    let updatedPO;
+    if (type === 'retention') {
+      updatedPO = { ...po, retentionReturn: { returnedDate: returnDate, note: returnNote.trim() } };
+    } else {
+      updatedPO = { ...po, deposit: { ...po.deposit, status: 'returned', returnedDate: returnDate, returnSlip: returnNote.trim() } };
+    }
+    const updatedProject = {
+      ...project,
+      transactions: project.transactions.map(t => t.id === po.id ? updatedPO : t)
+    };
+    onUpdateProject(updatedProject);
+    setReturnModal(null);
+    if (window.notify) window.notify('บันทึกคืนเงินประกันให้ ' + returnModal.vendor + ' แล้ว', 'success');
+  };
+
+  return (
+    <div>
+      <div className="page-header">
+        <div className="titles">
+          <h1>ประกันผลงานค้างจ่าย</h1>
+          <div className="sub">
+            รวมทุกโครงการ — เงินหักประกันผลงานช่าง (แรงงาน/รับเหมาช่วง) · มัดจำวัสดุและเครื่องจักร
+          </div>
+        </div>
+      </div>
+
+      {/* Warning: some projects not yet loaded */}
+      {unloadedCount > 0 ? (
+        <div className="card tight mb-16" style={{
+          padding:'10px 16px', background:'rgba(251,191,36,.07)',
+          borderColor:'rgba(251,191,36,.3)', display:'flex', alignItems:'center', gap:'10px'
+        }}>
+          <Icon name="info" size={14} style={{color:'var(--warn)', flexShrink:0}}/>
+          <span style={{fontSize:'13px'}}>
+            กำลังโหลดข้อมูล — ยังโหลดไม่ครบ <strong style={{color:'var(--warn)'}}>{unloadedCount} โครงการ</strong>
+            <span className="dim"> · ข้อมูลจะปรากฏเมื่อโหลดเสร็จ</span>
+          </span>
+        </div>
+      ) : null}
+
+      {/* Summary stats */}
+      <div className="stat-grid">
+        <Stat tone="warn" icon="clock"
+          label="ยอดค้างจ่ายทั้งหมด"
+          value={formatBaht(pendingAmount)}
+          delta={pendingItems.length + ' รายการ รอคืนเงิน'}
+          deltaTone={pendingItems.length > 0 ? 'down' : 'flat'}/>
+        <Stat tone="brand" icon="shield-check"
+          label="คืนแล้วทั้งหมด"
+          value={formatBaht(returnedAmount)}
+          delta={returnedItems.length + ' รายการ'}
+          deltaTone="flat"/>
+      </div>
+
+      {/* Vendor summary cards — pending only */}
+      {groupedByVendor.length > 0 ? (
+        <div className="mb-24">
+          <div className="between mb-12">
+            <div className="uppercase muted">ค้างจ่ายแยกรายทีมงาน / คู่ค้า</div>
+            <Badge tone="warn">{pendingItems.length} รายการ</Badge>
+          </div>
+          <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:'10px'}}>
+            {groupedByVendor.map(g => (
+              <div key={g.vendor} className="card tight" style={{padding:'14px 16px', borderLeft:'3px solid var(--warn)'}}>
+                <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'8px'}}>
+                  <div style={{
+                    width:'34px', height:'34px', borderRadius:'50%', flexShrink:0,
+                    background:'rgba(251,191,36,.15)', color:'var(--warn)',
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                    fontSize:'15px', fontWeight:700
+                  }}>
+                    {(g.vendor || '?').charAt(0).toUpperCase()}
+                  </div>
+                  <div style={{flex:1, minWidth:0}}>
+                    <div style={{fontWeight:600, fontSize:'13.5px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                      {g.vendor}
+                    </div>
+                    <div className="dim" style={{fontSize:'11.5px'}}>{g.items.length} รายการค้างจ่าย</div>
+                  </div>
+                  <div className="mono" style={{fontSize:'16px', fontWeight:700, color:'var(--warn)', flexShrink:0}}>
+                    {formatBaht(g.total)}<span style={{fontSize:'10.5px', fontWeight:400, marginLeft:'2px'}}>บ.</span>
+                  </div>
+                </div>
+                {g.items.map(item => (
+                  <div key={item.key} style={{
+                    display:'flex', alignItems:'center', gap:'8px',
+                    padding:'5px 8px', borderRadius:'var(--r-sm)', background:'var(--bg-0)',
+                    marginBottom:'4px', fontSize:'12px'
+                  }}>
+                    <KindIcon kind={item.kind} size={11} style={{color:'var(--text-3)', flexShrink:0}}/>
+                    <span className="dim" style={{flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                      {item.project.name}
+                    </span>
+                    <span className="mono dim">{item.po.code}</span>
+                    <span className="mono" style={{color:'var(--warn)', fontWeight:600, flexShrink:0}}>
+                      {formatBaht(item.amount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : pendingItems.length === 0 && allItems.length === 0 && unloadedCount === 0 ? (
+        <Empty icon="shield-check"
+          title="ไม่มีรายการเงินประกัน"
+          hint="รายการเงินหักประกันผลงานช่างและเงินมัดจำจะปรากฏที่นี่เมื่อมีการบันทึก"/>
+      ) : null}
+
+      {/* Filter + full table */}
+      {allItems.length > 0 ? (<>
+        <div className="between mb-12">
+          <div className="uppercase muted">รายการทั้งหมด</div>
+          <div style={{display:'flex', gap:'6px'}}>
+            {[['pending','ค้างจ่าย'], ['returned','คืนแล้ว'], ['all','ทั้งหมด']].map(([key, label]) => (
+              <button key={key}
+                className={'btn sm ' + (filter === key ? 'primary' : 'ghost')}
+                onClick={() => setFilter(key)}>
+                {label}
+                {key === 'pending' && pendingItems.length > 0
+                  ? <span style={{
+                      marginLeft:'5px', background:'var(--warn)', color:'#000',
+                      borderRadius:'10px', padding:'0 5px', fontSize:'10px', fontWeight:700
+                    }}>{pendingItems.length}</span>
+                  : null}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {filteredItems.length === 0 ? (
+          <Empty icon="shield-check"
+            title={filter === 'pending' ? 'ไม่มีรายการค้างจ่าย' : 'ไม่มีข้อมูล'}
+            hint={filter === 'pending' ? 'เงินประกันทุกรายการได้รับคืนครบแล้ว' : ''}/>
+        ) : (
+          <div className="card" style={{padding:0, overflow:'hidden'}}>
+            <div className="table-scroll">
+              <table className="data-table" style={{width:'100%'}}>
+                <thead>
+                  <tr>
+                    <th>ประเภท</th>
+                    <th>ทีมงาน / คู่ค้า</th>
+                    <th>โครงการ</th>
+                    <th>เลข PO</th>
+                    <th>วันที่</th>
+                    <th style={{textAlign:'right'}}>เงินประกัน (บ.)</th>
+                    <th>สถานะ</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredItems.map(item => (
+                    <tr key={item.key} style={item.isReturned ? {opacity:0.5} : {}}>
+                      <td>
+                        <span style={{
+                          display:'inline-flex', alignItems:'center', gap:'5px',
+                          padding:'2px 7px', borderRadius:'var(--r-sm)', fontSize:'11px', fontWeight:500,
+                          background: item.kind === 'labor'       ? 'rgba(167,139,250,.15)' :
+                                      item.kind === 'subcontract' ? 'rgba(251,146,60,.15)'  :
+                                                                    'rgba(96,165,250,.15)',
+                          color:      item.kind === 'labor'       ? '#a78bfa' :
+                                      item.kind === 'subcontract' ? '#fb923c'  :
+                                                                    '#60a5fa'
+                        }}>
+                          <KindIcon kind={item.kind} size={11}/> {item.typeLabel}
+                        </span>
+                      </td>
+                      <td style={{fontWeight:500}}>{item.vendor}</td>
+                      <td className="dim" style={{fontSize:'12px', maxWidth:'160px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                        {item.project.name}
+                      </td>
+                      <td className="mono dim" style={{fontSize:'11.5px'}}>{item.po.code}</td>
+                      <td className="mono dim" style={{fontSize:'11.5px'}}>{formatDate(item.po.date)}</td>
+                      <td className="mono" style={{textAlign:'right', fontWeight:600,
+                        color: item.isReturned ? 'var(--text-3)' : 'var(--warn)'}}>
+                        {formatBaht(item.amount)}
+                      </td>
+                      <td>
+                        {item.isReturned
+                          ? <Badge tone="brand" dot>คืนแล้ว{item.returnedDate ? ' ' + formatDate(item.returnedDate) : ''}</Badge>
+                          : <Badge tone="warn" dot>ค้างจ่าย</Badge>
+                        }
+                      </td>
+                      <td style={{whiteSpace:'nowrap'}}>
+                        {!item.isReturned && canMarkReturn ? (
+                          <button className="btn sm ghost" onClick={() => openReturnModal(item)}>
+                            <Icon name="check" size={12}/> บันทึกคืน
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </>) : null}
+
+      {/* Return confirmation modal */}
+      {returnModal ? (
+        <Modal open={true} onClose={() => setReturnModal(null)} title="บันทึกคืนเงินประกัน"
+          footer={<>
+            <button className="btn ghost" onClick={() => setReturnModal(null)}>ยกเลิก</button>
+            <button className="btn primary" disabled={!returnDate} onClick={doMarkReturn}>
+              <Icon name="check" size={14}/> ยืนยันคืนเงินประกัน
+            </button>
+          </>}>
+          <div className="card tight mb-16" style={{padding:'12px 16px', background:'var(--bg-0)'}}>
+            <div style={{fontSize:'13.5px', fontWeight:600, marginBottom:'3px'}}>{returnModal.vendor}</div>
+            <div className="dim" style={{fontSize:'12.5px'}}>
+              {returnModal.typeLabel} · {returnModal.project.name}
+            </div>
+            <div className="dim" style={{fontSize:'12px'}}>
+              PO: <span className="mono">{returnModal.po.code}</span> · {formatDate(returnModal.po.date)}
+            </div>
+            <div style={{marginTop:'10px', paddingTop:'10px', borderTop:'1px solid var(--border)', display:'flex', alignItems:'baseline', gap:'8px'}}>
+              <span className="dim" style={{fontSize:'12.5px'}}>ยอดเงินประกัน:</span>
+              <span className="mono" style={{fontSize:'18px', fontWeight:700, color:'var(--warn)'}}>
+                {formatBaht(returnModal.amount)} <span style={{fontSize:'12px', fontWeight:400}}>บาท</span>
+              </span>
+            </div>
+          </div>
+          <div className="form-grid">
+            <div className="field">
+              <label>วันที่คืนเงิน <span className="req">*</span></label>
+              <input className="input-base" type="date" value={returnDate}
+                onChange={e => setReturnDate(e.target.value)}/>
+            </div>
+            <div className="field">
+              <label>หมายเหตุ / เลขที่อ้างอิง</label>
+              <input className="input-base" placeholder="เช่น ใบรับเงิน เลขที่ 0001"
+                value={returnNote} onChange={e => setReturnNote(e.target.value)}/>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+    </div>
+  );
+}
+
+/* ============================================================
    TRANSACTION MODAL — add / edit
    ============================================================ */
 function TransactionModal({ mode, kind, project, initial, onClose, onSubmit }) {

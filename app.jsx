@@ -322,6 +322,15 @@ function App() {
     if (view.name === 'project' && view.projectId) ensureProjectFull(view.projectId);
   }, [view]);
 
+  // Auto-load all unloaded projects when deposit tracking view is opened
+  useEffect(function() {
+    if (view.name !== 'depositTracking') return;
+    if (!liveMode || !_dbReady) return;
+    projects.forEach(function(p) {
+      if (!p._fullLoaded) ensureProjectFull(p.id);
+    });
+  }, [view.name, liveMode, projects.length]);
+
   // ── Visibility refresh — restore data after tab regains focus ────────
   // Re-merges project metadata (without losing existing full-loaded transactions)
   // and force-refreshes the open project if one is active.
@@ -582,6 +591,23 @@ function App() {
     });
   }, [projects, search]);
 
+  // Badge count for the deposit tracking sidebar item
+  var pendingDepositCount = useMemo(function() {
+    var cnt = 0;
+    projects.forEach(function(p) {
+      if (!Array.isArray(p.transactions)) return;
+      p.transactions.forEach(function(po) {
+        if ((po.kind === 'labor' || po.kind === 'subcontract') &&
+            (po.retentionAmount || 0) > 0 &&
+            !(po.retentionReturn && po.retentionReturn.returnedDate)) cnt++;
+        if ((po.kind === 'material' || po.kind === 'machine') &&
+            po.deposit && (po.deposit.amount || 0) > 0 &&
+            po.deposit.status !== 'returned') cnt++;
+      });
+    });
+    return cnt;
+  }, [projects]);
+
   // ── Render guards ─────────────────────────────────────
   if (authLoading) return <LoadingOverlay text="กำลังตรวจสอบสิทธิ์..."/>;
   if (showLogin)   return <LoginScreen onLogin={handleDemoLogin}/>;
@@ -667,6 +693,14 @@ function App() {
               onClick={function(){goto({name:'globalWorkers'});}}>
               <Icon name="users" size={16}/> <span>ทีมช่าง</span>
             </button>
+            <button className={'nav-item ' + (view.name === 'depositTracking' ? 'active' : '')}
+              onClick={function(){goto({name:'depositTracking'});}}>
+              <Icon name="clock" size={16}/>
+              <span>ประกันผลงานค้างจ่าย</span>
+              {pendingDepositCount > 0
+                ? <span style={{marginLeft:'auto',background:'var(--warn)',color:'#000',borderRadius:'10px',padding:'1px 6px',fontSize:'10px',fontWeight:700,flexShrink:0}}>{pendingDepositCount}</span>
+                : null}
+            </button>
             <div className="sidebar-section-label">เครื่องมือ</div>
             <button className="nav-item" onClick={function(){setNewProjOpen(true);}}>
               <Icon name="plus" size={16}/> <span>เพิ่มโครงการใหม่</span>
@@ -721,6 +755,9 @@ function App() {
               </>) : view.name === 'globalWorkers' ? (<>
                 <span className="sep">/</span>
                 <strong>ทีมช่าง</strong>
+              </>) : view.name === 'depositTracking' ? (<>
+                <span className="sep">/</span>
+                <strong>ประกันผลงานค้างจ่าย</strong>
               </>) : null}
             </div>
             <div className="spacer"></div>
@@ -810,6 +847,12 @@ function App() {
             <GlobalWorkersScreen
               workers={globalWorkers}
               onUpdate={updateGlobalWorkers}
+              currentRole={currentRole}
+            />
+          ) : view.name === 'depositTracking' ? (
+            <DepositTrackingScreen
+              projects={projects}
+              onUpdateProject={updateProject}
               currentRole={currentRole}
             />
           ) : (
