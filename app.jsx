@@ -227,7 +227,25 @@ function App() {
         setProjectsLoading(true);
         return window.db.projects.getProjects();
       })
-      .then(function(ps) { setProjects(ps); setProjectsLoading(false); })
+      .then(function(ps) {
+        // Merge fresh metadata with existing loaded transactions — prevent data loss
+        // when auth events (SIGNED_IN, INITIAL_SESSION) re-trigger this function
+        setProjects(function(existing) {
+          return ps.map(function(newP) {
+            var old = existing.find(function(e) { return e.id === newP.id; });
+            if (old && old._fullLoaded) {
+              // Keep transactions + members from fully-loaded project, update metadata
+              return Object.assign({}, newP, {
+                transactions: old.transactions,
+                members:      old.members || [],
+                _fullLoaded:  true
+              });
+            }
+            return newP;
+          });
+        });
+        setProjectsLoading(false);
+      })
       .catch(function(err) {
         console.error('Auth/profile error:', err);
         setAuthLoading(false);
@@ -262,6 +280,49 @@ function App() {
   useEffect(function() {
     if (view.name === 'project' && view.projectId) ensureProjectFull(view.projectId);
   }, [view]);
+
+  // ── Visibility refresh — restore data after tab regains focus ────────
+  // Re-merges project metadata (without losing existing full-loaded transactions)
+  // and force-refreshes the open project if one is active.
+  useEffect(function() {
+    if (!liveMode || !_dbReady) return;
+    var vName = view.name;
+    var vId   = view.projectId;
+
+    function onVisible() {
+      if (document.visibilityState !== 'visible') return;
+      // Refresh project list metadata (preserving loaded transactions)
+      window.db.projects.getProjects().then(function(ps) {
+        setProjects(function(existing) {
+          return ps.map(function(newP) {
+            var old = existing.find(function(e) { return e.id === newP.id; });
+            if (old && old._fullLoaded) {
+              return Object.assign({}, newP, {
+                transactions: old.transactions,
+                members:      old.members || [],
+                _fullLoaded:  true
+              });
+            }
+            return newP;
+          });
+        });
+      }).catch(function(e) { console.warn('[vis] getProjects error:', e); });
+
+      // Force re-fetch full project if one is open
+      if (vName === 'project' && vId) {
+        window.db.projects.getProjectFull(vId).then(function(full) {
+          setProjects(function(arr) {
+            return arr.map(function(p) {
+              return p.id === vId ? Object.assign({}, full, { _fullLoaded: true }) : p;
+            });
+          });
+        }).catch(function(e) { console.warn('[vis] getProjectFull error:', e); });
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisible);
+    return function() { document.removeEventListener('visibilitychange', onVisible); };
+  }, [liveMode, view.name, view.projectId]);
 
   // ── Realtime subscription for the open project ───────
   useEffect(function() {
