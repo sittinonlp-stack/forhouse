@@ -10,17 +10,20 @@ const SCR = {}; // will be exported to window at the end
 function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, onOpenMonthlyPlan, currentRole }) {
   const canViewBalance = (ROLES[currentRole] || ROLES.staff).canViewBalance;
   const all = useMemo(() => {
-    const totals = { income: 0, expense: 0, profit: 0, contract: 0, budget: 0 };
+    const totals = { income: 0, incomeNet: 0, incomeDeduction: 0, expense: 0, profit: 0, contract: 0, budget: 0 };
     const list = projects.map(p => {
       const agg = aggregateProject(p);
-      totals.income += agg.income;
+      totals.income       += agg.income;
+      totals.incomeNet    += agg.incomeNet;
+      totals.incomeDeduction += agg.incomeDeduction;
       totals.expense += agg.expense;
-      totals.profit += agg.profit;
+      totals.profit  += agg.profit;
       totals.contract += p.contractValue;
-      totals.budget += agg.totalBudget;
+      totals.budget   += agg.totalBudget;
       return { project: p, agg };
     });
-    const margin = totals.income > 0 ? (totals.profit / totals.income) * 100 : 0;
+    // Margin uses incomeNet (หลังหักเปอร์เซ็น) — consistent with profit calculation
+    const margin = totals.incomeNet > 0 ? (totals.profit / totals.incomeNet) * 100 : 0;
     // Total pending approvals across all projects + breakdown by kind
     const pendingByKind = { material: 0, labor: 0, subcontract: 0, machine: 0, other: 0 };
     list.forEach(({ project, agg }) => {
@@ -85,12 +88,29 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
       ) : null}
 
       <div className="stat-grid">
-        <Stat tone="income" icon="income" label="รายรับรวมทุกโครงการ"
-          value={formatBaht(all.totals.income)}
-          delta={`จาก ${formatBaht(all.totals.contract, {compact: true})} ของมูลค่าสัญญารวม`} deltaTone="flat"/>
+        {/* รายรับสุทธิ — หลังหักเปอร์เซ็น */}
+        <Stat tone="income" icon="income" label="รายรับสุทธิรวม (หลังหักเปอร์เซ็น)"
+          value={formatBaht(all.totals.incomeNet)}
+          delta={
+            all.totals.incomeDeduction > 0
+              ? `ก่อนหัก ${formatBaht(all.totals.income, {compact:true})} บ.`
+              : `จาก ${formatBaht(all.totals.contract, {compact: true})} ของมูลค่าสัญญารวม`
+          }
+          deltaTone="flat"/>
+
+        {/* ยอดพักเปอร์เซ็นสะสม */}
+        <Stat tone="warn" icon="clock" label="ยอดพักเปอร์เซ็นสะสม (ค้างรับ)"
+          value={formatBaht(all.totals.incomeDeduction)}
+          delta={
+            all.totals.income > 0
+              ? `${(all.totals.incomeDeduction / all.totals.income * 100).toFixed(1)}% ของรายรับก่อนหัก`
+              : 'ไม่มียอดพัก'
+          }
+          deltaTone={all.totals.incomeDeduction > 0 ? 'flat' : 'flat'}/>
+
         <Stat tone="expense" icon="expense" label="รายจ่ายรวมทุกโครงการ"
           value={formatBaht(all.totals.expense)}
-          delta={`คิดเป็น ${all.totals.income > 0 ? Math.round(all.totals.expense / all.totals.income * 100) : 0}% ของรายรับ`} deltaTone="flat"/>
+          delta={`คิดเป็น ${all.totals.incomeNet > 0 ? Math.round(all.totals.expense / all.totals.incomeNet * 100) : 0}% ของรายรับสุทธิ`} deltaTone="flat"/>
         <Stat tone="profit" icon="wallet" label="กำไร/ขาดทุนสุทธิรวม"
           value={formatBaht(all.totals.profit)}
           delta={all.totals.profit >= 0 ? 'กำไรสะสม' : 'ขาดทุนสะสม'} deltaTone={all.totals.profit >= 0 ? 'up' : 'down'}/>
