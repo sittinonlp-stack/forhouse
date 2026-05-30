@@ -98,8 +98,8 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
           }
           deltaTone="flat"/>
 
-        {/* ยอดพักเปอร์เซ็นสะสม */}
-        <Stat tone="warn" icon="clock" label="ยอดพักเปอร์เซ็นสะสม (ค้างรับ)"
+        {/* ยอดหักค่าดำเนินการบริษัท */}
+        <Stat tone="warn" icon="clock" label="ยอดหักค่าดำเนินการบริษัท"
           value={formatBaht(all.totals.incomeDeduction)}
           delta={
             all.totals.income > 0
