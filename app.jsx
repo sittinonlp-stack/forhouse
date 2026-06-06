@@ -151,6 +151,7 @@ function App() {
     return [];
   });
   var [projectsLoading,    setProjectsLoading]    = useState(false);
+  var _initialLoadDone = React.useRef(false); // ป้องกัน loading overlay ซ้ำเมื่อ INITIAL_SESSION ยิงใหม่
   var [view,               setView]               = useState({ name: 'dashboard' });
   var [theme,              setTheme]              = useState('a');
   var [sidebarOpen,        setSidebarOpen]        = useState(false);
@@ -258,8 +259,8 @@ function App() {
         setAuthLoading(false);
         setLiveMode(true);
         setShowLogin(false);
-        // Load projects
-        setProjectsLoading(true);
+        // โชว์ loading เฉพาะครั้งแรก — ป้องกัน INITIAL_SESSION ทำหน้าจอขาว
+        if (!_initialLoadDone.current) setProjectsLoading(true);
         return window.db.projects.getProjects();
       })
       .then(function(ps) {
@@ -279,6 +280,7 @@ function App() {
             return newP;
           });
         });
+        _initialLoadDone.current = true;
         setProjectsLoading(false);
       })
       .catch(function(err) {
@@ -286,6 +288,7 @@ function App() {
         setAuthLoading(false);
         setLiveMode(true);
         setShowLogin(false);
+        _initialLoadDone.current = true;
         setProjectsLoading(false);
       });
   }
