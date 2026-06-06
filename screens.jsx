@@ -242,6 +242,7 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
   const [addingIncome, setAddingIncome] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [editProjectOpen, setEditProjectOpen] = useState(false);
 
   // PO state
   const [poEditor, setPOEditor] = useState(null);  // { kind, po? }
@@ -366,6 +367,11 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
           {role.canViewBalance ? (
             <button className="btn" onClick={onOpenBalance}>
               <Icon name="balance" size={16}/> งบดุลโครงการ
+            </button>
+          ) : null}
+          {role.canManageCategories ? (
+            <button className="btn" onClick={() => setEditProjectOpen(true)}>
+              <Icon name="edit" size={16}/> แก้ไขโครงการ
             </button>
           ) : null}
           <button className="btn primary" onClick={() => {
@@ -507,6 +513,17 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
       />
       {summaryOpen ? (
         <ProjectSummaryReport project={project} agg={agg} onClose={() => setSummaryOpen(false)}/>
+      ) : null}
+      {editProjectOpen ? (
+        <EditProjectModal
+          project={project}
+          onClose={() => setEditProjectOpen(false)}
+          onSubmit={(updates) => {
+            onUpdate({ ...project, ...updates });
+            setEditProjectOpen(false);
+            if (window.notify) window.notify('บันทึกรายละเอียดโครงการแล้ว', 'success');
+          }}
+        />
       ) : null}
       {confirmDeleteProject ? (
         <Modal open={true} onClose={() => { setConfirmDeleteProject(false); setDeleteConfirmText(''); }} title="ยืนยันการลบโครงการ"
@@ -4081,6 +4098,151 @@ function QuickReceiptsScreen({ projects, onDeleteReceipt }) {
         </Modal>
       ) : null}
     </div>
+  );
+}
+
+/* ============================================================
+   EDIT PROJECT MODAL
+   ============================================================ */
+function EditProjectModal({ project, onClose, onSubmit }) {
+  const [name, setName]              = useState(project.name || '');
+  const [code, setCode]              = useState(project.code || '');
+  const [client, setClient]          = useState(project.client || '');
+  const [location, setLocation]      = useState(project.location || '');
+  const [contractValue, setContract] = useState(String(project.contractValue || ''));
+  const [start, setStart]            = useState(project.startDate || '');
+  const [end, setEnd]                = useState(project.endDate || '');
+  const [progress, setProgress]      = useState(String(Math.round((project.progress || 0) * 100)));
+  const [status, setStatus]          = useState(project.status || 'progress');
+  const [budgets, setBudgets]        = useState(() => {
+    const b = project.budgets || {};
+    const result = {};
+    for (const k of EXPENSE_KINDS) result[k] = String(b[k] || '');
+    return result;
+  });
+
+  const cv = parseFloat(String(contractValue).replace(/,/g,'')) || 0;
+  const totalBudget = Object.values(budgets).reduce((s, v) => s + (parseFloat(String(v).replace(/,/g,'')) || 0), 0);
+  const can = name.trim() && cv > 0;
+
+  function submit() {
+    if (!can) return;
+    onSubmit({
+      code: code.trim(),
+      name: name.trim(),
+      client: client.trim(),
+      location: location.trim(),
+      contractValue: cv,
+      startDate: start,
+      endDate: end,
+      status,
+      progress: Math.min(1, Math.max(0, (parseFloat(progress) || 0) / 100)),
+      budgets: {
+        material:    parseFloat(String(budgets.material).replace(/,/g,''))    || 0,
+        labor:       parseFloat(String(budgets.labor).replace(/,/g,''))       || 0,
+        subcontract: parseFloat(String(budgets.subcontract).replace(/,/g,'')) || 0,
+        machine:     parseFloat(String(budgets.machine).replace(/,/g,''))     || 0,
+        other:       parseFloat(String(budgets.other).replace(/,/g,''))       || 0
+      }
+    });
+  }
+
+  const STATUS_OPTIONS = [
+    { value: 'progress', label: 'กำลังดำเนินการ' },
+    { value: 'done',     label: 'เสร็จสิ้น' },
+    { value: 'hold',     label: 'หยุดพัก' },
+    { value: 'cancel',   label: 'ยกเลิก' }
+  ];
+
+  return (
+    <Modal open={true} onClose={onClose} title="แก้ไขรายละเอียดโครงการ" wide
+      footer={<>
+        <button className="btn ghost" onClick={onClose}>ยกเลิก</button>
+        {!can ? (
+          <span style={{fontSize:'12px', color:'var(--warn-bright)', alignSelf:'center'}}>
+            <Icon name="warn" size={12}/> กรอก{!name.trim() ? 'ชื่อโครงการ' : ''}{!name.trim() && !(cv > 0) ? ' และ' : ''}{!(cv > 0) ? 'มูลค่าสัญญา' : ''}ก่อนบันทึก
+          </span>
+        ) : null}
+        <button className="btn primary" disabled={!can} onClick={submit}>
+          <Icon name="check" size={14}/> บันทึกการแก้ไข
+        </button>
+      </>}>
+      <div className="form-grid">
+        <div className="field">
+          <label>รหัสโครงการ</label>
+          <input className="input-base mono" value={code} onChange={e => setCode(e.target.value)}/>
+        </div>
+        <div className="field">
+          <label>มูลค่าสัญญา (บาท) <span className="req">*</span></label>
+          <div className="with-suffix">
+            <input className="input-base num-input" inputMode="decimal" placeholder="0"
+              value={contractValue} onChange={e => setContract(formatNumberInput(e.target.value))}/>
+            <span className="suffix">บาท</span>
+          </div>
+        </div>
+        <div className="field full">
+          <label>ชื่อโครงการ <span className="req">*</span></label>
+          <input className="input-base" value={name} onChange={e => setName(e.target.value)}/>
+        </div>
+        <div className="field">
+          <label>เจ้าของงาน</label>
+          <input className="input-base" placeholder="ชื่อลูกค้า / บริษัท" value={client} onChange={e => setClient(e.target.value)}/>
+        </div>
+        <div className="field">
+          <label>ที่ตั้ง</label>
+          <input className="input-base" placeholder="ตำบล / อำเภอ / จังหวัด" value={location} onChange={e => setLocation(e.target.value)}/>
+        </div>
+        <div className="field">
+          <label>วันที่เริ่มงาน</label>
+          <input className="input-base" type="date" value={start} onChange={e => setStart(e.target.value)}/>
+        </div>
+        <div className="field">
+          <label>วันที่สิ้นสุดสัญญา</label>
+          <input className="input-base" type="date" value={end} onChange={e => setEnd(e.target.value)}/>
+        </div>
+        <div className="field">
+          <label>สถานะโครงการ</label>
+          <select className="input-base" value={status} onChange={e => setStatus(e.target.value)}>
+            {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label>ความคืบหน้างาน (%)</label>
+          <div className="with-suffix">
+            <input className="input-base num-input" inputMode="decimal" placeholder="0"
+              value={progress}
+              onChange={e => {
+                const v = e.target.value.replace(/[^0-9.]/g, '');
+                setProgress(v);
+              }}/>
+            <span className="suffix">%</span>
+          </div>
+          <span className="hint">0–100 (ปัจจุบัน {Math.round((project.progress || 0) * 100)}%)</span>
+        </div>
+        <div className="field full">
+          <label>งบประมาณตั้งไว้แต่ละหมวด</label>
+          <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'10px'}}>
+            {EXPENSE_KINDS.map(k => (
+              <div key={k} className="field" style={{gap:'4px'}}>
+                <label style={{display:'flex', alignItems:'center', gap:'6px', textTransform:'none', letterSpacing:0, fontSize:'12px', color:'var(--text-2)'}}>
+                  <KindIcon kind={k} size={12}/> {KINDS[k].short}
+                </label>
+                <div className="with-suffix">
+                  <input className="input-base num-input" inputMode="decimal" placeholder="0"
+                    value={budgets[k]}
+                    onChange={e => setBudgets({ ...budgets, [k]: formatNumberInput(e.target.value) })}/>
+                  <span className="suffix">บ.</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hint">
+            รวมงบ <strong className="mono">{formatBaht(totalBudget)}</strong> บาท
+            {cv > 0 ? <> · คาดกำไร <strong className={'mono ' + (cv - totalBudget >= 0 ? 'pos' : 'neg')}>{formatBaht(cv - totalBudget)}</strong> บาท ({((cv - totalBudget) / cv * 100).toFixed(1)}%)</> : null}
+          </div>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
