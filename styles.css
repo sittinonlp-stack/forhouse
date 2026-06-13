@@ -2612,46 +2612,61 @@ table.data tfoot td {
     print-color-adjust: exact;
   }
 
-  /* When printing the project summary modal, hide everything except the modal content.
-     Modal is nested inside #root, so we use visibility to hide all then re-show only
-     the modal-backdrop and its descendants. */
-  body.printing-summary * { visibility: hidden !important; }
-  body.printing-summary .modal-backdrop,
-  body.printing-summary .modal-backdrop * { visibility: visible !important; }
-  body.printing-summary .modal-backdrop {
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: auto !important;
-    background: white !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    overflow: visible !important;
+  /* Clone-to-portal approach: content is cloned into #print-portal (outside #root)
+     and #root is hidden. More reliable than visibility:hidden/visible in Chrome. */
+  body.printing-summary #root { display: none !important; }
+  #print-portal {
+    display: none;
+  }
+  body.printing-summary #print-portal {
     display: block !important;
-    z-index: 9999 !important;
-  }
-  body.printing-summary .modal {
-    position: static !important;
-    box-shadow: none !important;
-    border: none !important;
-    max-width: 100% !important;
-    width: 100% !important;
-    max-height: none !important;
+    position: fixed !important;
+    inset: 0 !important;
+    background: #fff !important;
     overflow: visible !important;
-    background: white !important;
+    padding: 0 !important;
     color: #000 !important;
-    margin: 0 !important;
-    padding: 0 !important;
+    font-family: 'IBM Plex Sans Thai', sans-serif !important;
   }
-  body.printing-summary .modal-head,
-  body.printing-summary .modal-head * { visibility: hidden !important; display: none !important; }
-  body.printing-summary .modal-foot,
-  body.printing-summary .modal-foot * { visibility: hidden !important; display: none !important; }
-  body.printing-summary .modal-body {
-    max-height: none !important;
-    overflow: visible !important;
-    padding: 0 !important;
+  /* Style the cloned content inside portal */
+  #print-portal .summary-group button {
+    background: #f3f4f6 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 6px !important;
+    padding: 9px 14px !important;
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    margin-bottom: 0 !important;
+  }
+  #print-portal .summary-table th {
+    background: #e5e7eb !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  #print-portal, #print-portal * { color: #000 !important; }
+  #print-portal .dim { color: #555 !important; }
+  #print-portal .mono { font-family: 'IBM Plex Mono', monospace !important; }
+  #print-portal .card {
+    border: 1px solid #e5e7eb !important;
+    border-radius: 8px !important;
+    padding: 14px 18px !important;
+    margin-bottom: 12px !important;
+    background: #fff !important;
+  }
+  #print-portal .summary-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 12px !important;
+  }
+  #print-portal .summary-table td,
+  #print-portal .summary-table th {
+    padding: 6px 10px !important;
+    border-bottom: 1px solid #e5e7eb !important;
+    text-align: left !important;
   }
   @page { margin: 12mm; }
 }

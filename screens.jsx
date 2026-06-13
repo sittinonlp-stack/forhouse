@@ -3660,9 +3660,18 @@ function ProjectSummaryReport({ project, agg, onClose }) {
   const profit = incomeNet - expenseTotal;
 
   const onPrint = () => {
+    const area   = document.getElementById('summary-print-area');
+    const portal = document.getElementById('print-portal');
+    if (!area || !portal) { window.print(); return; }
+
+    // Clone content into portal (outside #root) so print CSS can hide #root cleanly
+    portal.innerHTML = '';
+    portal.appendChild(area.cloneNode(true));
+
     document.body.classList.add('printing-summary');
     const cleanup = () => {
       document.body.classList.remove('printing-summary');
+      portal.innerHTML = '';
       window.removeEventListener('afterprint', cleanup);
     };
     window.addEventListener('afterprint', cleanup);
