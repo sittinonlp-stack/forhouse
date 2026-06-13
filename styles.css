@@ -2613,20 +2613,27 @@ table.data tfoot td {
   }
 
   /* Clone-to-portal approach: content is cloned into #print-portal (outside #root)
-     and #root is hidden. More reliable than visibility:hidden/visible in Chrome. */
+     and #root is hidden. position:static lets content flow across multiple pages. */
   body.printing-summary #root { display: none !important; }
+  body.printing-summary,
+  html body.printing-summary { height: auto !important; overflow: visible !important; }
   #print-portal {
     display: none;
   }
   body.printing-summary #print-portal {
     display: block !important;
-    position: fixed !important;
-    inset: 0 !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
     background: #fff !important;
     overflow: visible !important;
     padding: 0 !important;
     color: #000 !important;
     font-family: 'IBM Plex Sans Thai', sans-serif !important;
+  }
+  body.printing-summary #print-portal > * {
+    overflow: visible !important;
+    height: auto !important;
   }
   /* Style the cloned content inside portal */
   #print-portal .summary-group button {
