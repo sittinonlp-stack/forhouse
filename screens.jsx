@@ -3626,25 +3626,30 @@ function ProjectSummaryReport({ project, agg, onClose }) {
   // ── Build expense groups: by kind → by category ────────────
   const expenseGroups = useMemo(() => {
     const groups = {};
-    project.transactions.filter(t => t.kind !== 'income' && getStatus(t) === 'paid').forEach(t => {
+    // แสดงทุกสถานะยกเว้น rejected — ให้เห็นภาพรวมครบถ้วน
+    project.transactions.filter(t => t.kind !== 'income' && getStatus(t) !== 'rejected').forEach(t => {
       const kind = t.kind;
-      if (!groups[kind]) groups[kind] = { categories: {}, total: 0, count: 0 };
+      const st   = getStatus(t);
+      if (!groups[kind]) groups[kind] = { categories: {}, total: 0, totalPaid: 0, count: 0 };
       const items = getPOItems(t);
       if (items.length === 0) {
-        // Treat the whole PO as one entry under category 'category' or first item
         const cat = t.category || '— ไม่ระบุหมวด —';
-        if (!groups[kind].categories[cat]) groups[kind].categories[cat] = { items: [], total: 0 };
-        groups[kind].categories[cat].items.push({ tx: t, line: null, amount: t.amount });
+        if (!groups[kind].categories[cat]) groups[kind].categories[cat] = { items: [], total: 0, totalPaid: 0 };
+        groups[kind].categories[cat].items.push({ tx: t, line: null, amount: t.amount, status: st });
         groups[kind].categories[cat].total += t.amount;
+        if (st === 'paid') groups[kind].categories[cat].totalPaid += t.amount;
         groups[kind].total += t.amount;
+        if (st === 'paid') groups[kind].totalPaid += t.amount;
         groups[kind].count += 1;
       } else {
         items.forEach(it => {
           const cat = it.category || '— ไม่ระบุหมวด —';
-          if (!groups[kind].categories[cat]) groups[kind].categories[cat] = { items: [], total: 0 };
-          groups[kind].categories[cat].items.push({ tx: t, line: it, amount: it.amount });
+          if (!groups[kind].categories[cat]) groups[kind].categories[cat] = { items: [], total: 0, totalPaid: 0 };
+          groups[kind].categories[cat].items.push({ tx: t, line: it, amount: it.amount, status: st });
           groups[kind].categories[cat].total += it.amount;
+          if (st === 'paid') groups[kind].categories[cat].totalPaid += it.amount;
           groups[kind].total += it.amount;
+          if (st === 'paid') groups[kind].totalPaid += it.amount;
         });
         groups[kind].count += 1;
       }
@@ -3657,6 +3662,7 @@ function ProjectSummaryReport({ project, agg, onClose }) {
   const incomeDeduction = Object.values(incomeGroups).reduce((s, g) => s + g.deduction, 0);
   const incomeNet = incomeGross - incomeDeduction;
   const expenseTotal = Object.values(expenseGroups).reduce((s, g) => s + g.total, 0);
+  const expensePaid  = Object.values(expenseGroups).reduce((s, g) => s + g.totalPaid, 0);
   const profit = incomeNet - expenseTotal;
 
   const onPrint = () => {
@@ -3844,7 +3850,14 @@ function ProjectSummaryReport({ project, agg, onClose }) {
           }}>
             <Icon name="expense" size={18} style={{color:'var(--danger)'}}/>
             <div style={{fontSize:'15px', fontWeight:600, flex:1}}>รายจ่ายโครงการ</div>
-            <div className="mono" style={{fontSize:'15px', fontWeight:600, color:'var(--danger)'}}>{formatBaht(expenseTotal)} บ.</div>
+            <div style={{textAlign:'right'}}>
+              <div className="mono" style={{fontSize:'15px', fontWeight:600, color:'var(--danger)'}}>{formatBaht(expenseTotal)} บ.</div>
+              {expensePaid < expenseTotal && (
+                <div className="dim" style={{fontSize:'11px', marginTop:'1px'}}>
+                  จ่ายแล้ว {formatBaht(expensePaid)} · รอชำระ {formatBaht(expenseTotal - expensePaid)}
+                </div>
+              )}
+            </div>
           </div>
 
           {Object.keys(expenseGroups).length === 0 ? (
@@ -3865,9 +3878,16 @@ function ProjectSummaryReport({ project, agg, onClose }) {
                   <KindIcon kind={kind} size={14}/>
                   <span style={{fontSize:'13.5px', fontWeight:600, flex:1}}>{meta.label}</span>
                   <span className="dim" style={{fontSize:'11.5px'}}>{g.count} เอกสาร · {Object.keys(g.categories).length} หมวดย่อย</span>
-                  <span className="mono" style={{fontSize:'14px', fontWeight:600, color: meta.color, minWidth:'120px', textAlign:'right'}}>
-                    {formatBaht(g.total)} บ.
-                  </span>
+                  <div style={{textAlign:'right'}}>
+                    <div className="mono" style={{fontSize:'14px', fontWeight:600, color: meta.color}}>
+                      {formatBaht(g.total)} บ.
+                    </div>
+                    {g.totalPaid < g.total && (
+                      <div className="dim" style={{fontSize:'10.5px', marginTop:'1px'}}>
+                        จ่ายแล้ว {formatBaht(g.totalPaid)}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Categories within this kind */}
@@ -3903,26 +3923,35 @@ function ProjectSummaryReport({ project, agg, onClose }) {
                               <th style={{width:'70px', textAlign:'right'}}>จำนวน</th>
                               <th style={{width:'110px', textAlign:'right'}}>ราคา/หน่วย</th>
                               <th style={{width:'110px', textAlign:'right'}}>รวม</th>
+                              <th style={{width:'90px', textAlign:'center'}}>สถานะ</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {c.items.sort((a,b) => a.tx.date.localeCompare(b.tx.date)).map((entry, i) => (
-                              <tr key={entry.tx.id + '_' + i}>
-                                <td className="mono dim">{entry.tx.date}</td>
-                                <td className="mono dim">{entry.tx.code || '—'}</td>
-                                <td>{entry.line ? entry.line.description : (entry.tx.description || '—')}</td>
-                                <td className="dim">{entry.tx.vendor || '—'}</td>
-                                <td className="mono dim" style={{textAlign:'right'}}>
-                                  {entry.line ? `${entry.line.qty} ${entry.line.unit}` : '—'}
-                                </td>
-                                <td className="mono dim" style={{textAlign:'right'}}>
-                                  {entry.line ? formatBaht(entry.line.unitPrice) : '—'}
-                                </td>
-                                <td className="mono" style={{textAlign:'right', fontWeight:600}}>
-                                  {formatBaht(entry.amount)}
-                                </td>
-                              </tr>
-                            ))}
+                            {c.items.sort((a,b) => a.tx.date.localeCompare(b.tx.date)).map((entry, i) => {
+                              const stInfo = PO_STATUS[entry.status] || PO_STATUS.draft;
+                              return (
+                                <tr key={entry.tx.id + '_' + i}
+                                  style={entry.status !== 'paid' ? {background:'rgba(251,191,36,.05)'} : {}}>
+                                  <td className="mono dim">{entry.tx.date}</td>
+                                  <td className="mono dim">{entry.tx.code || '—'}</td>
+                                  <td>{entry.line ? entry.line.description : (entry.tx.description || '—')}</td>
+                                  <td className="dim">{entry.tx.vendor || '—'}</td>
+                                  <td className="mono dim" style={{textAlign:'right'}}>
+                                    {entry.line ? `${entry.line.qty} ${entry.line.unit}` : '—'}
+                                  </td>
+                                  <td className="mono dim" style={{textAlign:'right'}}>
+                                    {entry.line ? formatBaht(entry.line.unitPrice) : '—'}
+                                  </td>
+                                  <td className="mono" style={{textAlign:'right', fontWeight:600,
+                                    color: entry.status === 'paid' ? 'inherit' : stInfo.color}}>
+                                    {formatBaht(entry.amount)}
+                                  </td>
+                                  <td style={{textAlign:'center'}}>
+                                    <Badge tone={stInfo.tone}>{stInfo.label}</Badge>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       ) : null}

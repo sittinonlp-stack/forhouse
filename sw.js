@@ -3,22 +3,22 @@
    Cache name must be updated when app version bumps
    ============================================================ */
 
-const CACHE_NAME = 'fh-v29';
+const CACHE_NAME = 'fh-v30';
 const APP_SHELL = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/styles.css?v=29',
-  '/config.js?v=29',
-  '/db.js?v=29',
-  '/data.js?v=29',
-  '/data-projects.js?v=29',
-  '/components.jsx?v=29',
-  '/po.jsx?v=29',
-  '/documents.jsx?v=29',
-  '/income-plan.jsx?v=29',
-  '/screens.jsx?v=29',
-  '/app.jsx?v=29',
+  '/styles.css?v=30',
+  '/config.js?v=30',
+  '/db.js?v=30',
+  '/data.js?v=30',
+  '/data-projects.js?v=30',
+  '/components.jsx?v=30',
+  '/po.jsx?v=30',
+  '/documents.jsx?v=30',
+  '/income-plan.jsx?v=30',
+  '/screens.jsx?v=30',
+  '/app.jsx?v=30',
   '/assets/forhouse-logo.jpg',
   '/assets/icon.svg'
 ];
