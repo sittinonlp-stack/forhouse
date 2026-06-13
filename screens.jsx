@@ -233,11 +233,12 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
 /* ============================================================
    PROJECT VIEW
    ============================================================ */
-function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, currentRole, presets }) {
+function ProjectView({ project, onBack, onUpdate, onDelete, onArchive, onOpenBalance, currentRole, presets }) {
   const [tab, setTab] = useState('overview');
   const role = ROLES[currentRole] || ROLES.staff;
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [confirmArchive, setConfirmArchive] = useState(false);
   const [editTx, setEditTx] = useState(null);     // income edit
   const [addingIncome, setAddingIncome] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null);
@@ -372,6 +373,12 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
           {role.canManageCategories ? (
             <button className="btn" onClick={() => setEditProjectOpen(true)}>
               <Icon name="edit" size={16}/> แก้ไขโครงการ
+            </button>
+          ) : null}
+          {role.canManageCategories ? (
+            <button className="btn" onClick={() => setConfirmArchive(true)}
+              style={{color:'var(--text-3)'}}>
+              <Icon name="archive" size={16}/> เก็บเข้าคลัง
             </button>
           ) : null}
           <button className="btn primary" onClick={() => {
@@ -524,6 +531,25 @@ function ProjectView({ project, onBack, onUpdate, onDelete, onOpenBalance, curre
             if (window.notify) window.notify('บันทึกรายละเอียดโครงการแล้ว', 'success');
           }}
         />
+      ) : null}
+      {confirmArchive ? (
+        <Modal open={true} onClose={() => setConfirmArchive(false)} title="เก็บโครงการเข้าคลัง"
+          footer={<>
+            <button className="btn ghost" onClick={() => setConfirmArchive(false)}>ยกเลิก</button>
+            <button className="btn primary" onClick={() => { setConfirmArchive(false); onArchive && onArchive(); }}>
+              <Icon name="archive" size={14}/> เก็บเข้าคลัง
+            </button>
+          </>}>
+          <div className="col gap-12">
+            <Alert tone="info" icon="info">
+              <strong>โครงการจะถูกย้ายเข้าคลังโครงการ</strong>
+              <p style={{margin:'6px 0 0', fontSize:'12.5px'}}>
+                ข้อมูลทั้งหมดของ <strong>"{project.name}"</strong> ยังคงอยู่ครบถ้วน แต่จะไม่แสดงในแถบเมนูหรือแดชบอร์ดรวม
+                สามารถนำกลับมาได้ทุกเมื่อจากหน้า "คลังโครงการ"
+              </p>
+            </Alert>
+          </div>
+        </Modal>
       ) : null}
       {confirmDeleteProject ? (
         <Modal open={true} onClose={() => { setConfirmDeleteProject(false); setDeleteConfirmText(''); }} title="ยืนยันการลบโครงการ"
@@ -4284,4 +4310,87 @@ function EditProjectModal({ project, onClose, onSubmit }) {
   );
 }
 
-Object.assign(window, { Dashboard, ProjectView, BalanceSheet, AllBalance, ProjectSummaryReport });
+/* ============================================================
+   ARCHIVED PROJECTS VIEW
+   ============================================================ */
+function ArchivedProjectsView({ projects, onUnarchive, onBack, currentRole }) {
+  const role = ROLES[currentRole] || ROLES.staff;
+
+  return (
+    <div className="screen">
+      <div className="page-header">
+        <div className="titles">
+          <h1>คลังโครงการ</h1>
+          <div className="sub">โครงการที่เสร็จสิ้นและเก็บเข้าคลัง · {projects.length} โครงการ · ข้อมูลครบถ้วน สามารถนำกลับมาได้</div>
+        </div>
+        <div className="page-actions">
+          <button className="btn ghost" onClick={onBack}>
+            <Icon name="arrow-left" size={16}/> กลับแดชบอร์ด
+          </button>
+        </div>
+      </div>
+
+      {projects.length === 0 ? (
+        <Empty title="ยังไม่มีโครงการในคลัง" icon="archive"
+          sub="เมื่อเก็บโครงการเข้าคลัง จะปรากฏที่นี่"/>
+      ) : (
+        <div className="col gap-12" style={{padding:'0 4px'}}>
+          {projects.map(function(p) {
+            const income = (p.transactions || []).filter(t => t.kind === 'income');
+            const expenses = (p.transactions || []).filter(t => t.kind !== 'income' && getStatus(t) !== 'rejected');
+            const totalIncome = income.reduce((s,t) => s + t.amount, 0);
+            const totalExpense = expenses.reduce((s,t) => s + t.amount, 0);
+            const profit = totalIncome - totalExpense;
+            return (
+              <div key={p.id} className="card" style={{padding:'16px 20px'}}>
+                <div style={{display:'flex', alignItems:'flex-start', gap:'14px'}}>
+                  <div style={{flex:1, minWidth:0}}>
+                    <div style={{display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap', marginBottom:'4px'}}>
+                      <span style={{fontSize:'16px', fontWeight:600}}>{p.name}</span>
+                      <Badge tone="">{p.code}</Badge>
+                      {p.status === 'done' || p.status === 'completed'
+                        ? <Badge tone="brand">เสร็จสิ้น</Badge>
+                        : <Badge tone="">{p.status || 'เสร็จสิ้น'}</Badge>}
+                    </div>
+                    <div className="dim" style={{fontSize:'12.5px', marginBottom:'10px'}}>
+                      {p.client || '—'} · {p.location || '—'}
+                      {p.archivedAt ? (' · เก็บเข้าคลัง ' + new Date(p.archivedAt).toLocaleDateString('th-TH', {day:'numeric',month:'short',year:'numeric'})) : ''}
+                    </div>
+                    <div style={{display:'flex', gap:'24px', flexWrap:'wrap'}}>
+                      <div>
+                        <div className="dim" style={{fontSize:'11px', marginBottom:'2px'}}>มูลค่าสัญญา</div>
+                        <div className="mono" style={{fontSize:'13px', fontWeight:600}}>{formatBaht(p.contractValue)} บ.</div>
+                      </div>
+                      <div>
+                        <div className="dim" style={{fontSize:'11px', marginBottom:'2px'}}>รายรับรวม</div>
+                        <div className="mono" style={{fontSize:'13px', fontWeight:600, color:'var(--brand-bright)'}}>{formatBaht(totalIncome)} บ.</div>
+                      </div>
+                      <div>
+                        <div className="dim" style={{fontSize:'11px', marginBottom:'2px'}}>รายจ่ายรวม</div>
+                        <div className="mono" style={{fontSize:'13px', fontWeight:600, color:'var(--danger)'}}>{formatBaht(totalExpense)} บ.</div>
+                      </div>
+                      <div>
+                        <div className="dim" style={{fontSize:'11px', marginBottom:'2px'}}>กำไร</div>
+                        <div className="mono" style={{fontSize:'13px', fontWeight:700, color: profit >= 0 ? 'var(--brand-bright)' : 'var(--danger)'}}>
+                          {profit >= 0 ? '' : '−'}{formatBaht(Math.abs(profit))} บ.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  {role.canManageCategories ? (
+                    <button className="btn ghost" style={{flexShrink:0, fontSize:'12px'}}
+                      onClick={() => onUnarchive && onUnarchive(p.id)}>
+                      <Icon name="arrow-left" size={14}/> นำกลับ
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+Object.assign(window, { Dashboard, ProjectView, BalanceSheet, AllBalance, ProjectSummaryReport, ArchivedProjectsView });

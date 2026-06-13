@@ -151,6 +151,7 @@ function App() {
     return [];
   });
   var [projectsLoading,    setProjectsLoading]    = useState(false);
+  var [archivedProjects,   setArchivedProjects]   = useState([]);
   var _initialLoadDone = React.useRef(false); // ป้องกัน loading overlay ซ้ำเมื่อ INITIAL_SESSION ยิงใหม่
   var [view,               setView]               = useState({ name: 'dashboard' });
   var [theme,              setTheme]              = useState('a');
@@ -261,16 +262,20 @@ function App() {
         setShowLogin(false);
         // โชว์ loading เฉพาะครั้งแรก — ป้องกัน INITIAL_SESSION ทำหน้าจอขาว
         if (!_initialLoadDone.current) setProjectsLoading(true);
-        return window.db.projects.getProjects();
+        return Promise.all([
+          window.db.projects.getProjects(),
+          window.db.projects.getArchivedProjects()
+        ]);
       })
-      .then(function(ps) {
+      .then(function(results) {
+        var ps       = results[0];
+        var archived = results[1];
         // Merge fresh metadata with existing loaded transactions — prevent data loss
         // when auth events (SIGNED_IN, INITIAL_SESSION) re-trigger this function
         setProjects(function(existing) {
           return ps.map(function(newP) {
             var old = existing.find(function(e) { return e.id === newP.id; });
             if (old && old._fullLoaded) {
-              // Keep transactions + members from fully-loaded project, update metadata
               return Object.assign({}, newP, {
                 transactions: old.transactions,
                 members:      old.members || [],
@@ -280,6 +285,7 @@ function App() {
             return newP;
           });
         });
+        setArchivedProjects(archived || []);
         _initialLoadDone.current = true;
         setProjectsLoading(false);
       })
@@ -529,6 +535,44 @@ function App() {
     }
   }, [projects, liveMode]);
 
+  var archiveProject = useCallback(function(projectId) {
+    var p = projects.find(function(pr) { return pr.id === projectId; });
+    if (!p) return;
+    var archived = Object.assign({}, p, { archived: true, archivedAt: new Date().toISOString() });
+    setProjects(function(arr) { return arr.filter(function(pr) { return pr.id !== projectId; }); });
+    setArchivedProjects(function(arr) { return [archived, ...arr]; });
+    if (liveMode && _dbReady) {
+      window.db.projects.archiveProject(projectId, true)
+        .catch(function(err) {
+          console.error('Archive project error:', err);
+          setSyncError('เก็บโครงการเข้าคลังไม่สำเร็จ: ' + (err.message || err));
+          setTimeout(function() { setSyncError(''); }, 8000);
+          // Rollback
+          setProjects(function(arr) { return [p, ...arr]; });
+          setArchivedProjects(function(arr) { return arr.filter(function(pr) { return pr.id !== projectId; }); });
+        });
+    }
+  }, [projects, liveMode]);
+
+  var unarchiveProject = useCallback(function(projectId) {
+    var p = archivedProjects.find(function(pr) { return pr.id === projectId; });
+    if (!p) return;
+    var active = Object.assign({}, p, { archived: false, archivedAt: null });
+    setArchivedProjects(function(arr) { return arr.filter(function(pr) { return pr.id !== projectId; }); });
+    setProjects(function(arr) { return [active, ...arr]; });
+    if (liveMode && _dbReady) {
+      window.db.projects.archiveProject(projectId, false)
+        .catch(function(err) {
+          console.error('Unarchive project error:', err);
+          setSyncError('นำโครงการกลับมาไม่สำเร็จ: ' + (err.message || err));
+          setTimeout(function() { setSyncError(''); }, 8000);
+          // Rollback
+          setArchivedProjects(function(arr) { return [p, ...arr]; });
+          setProjects(function(arr) { return arr.filter(function(pr) { return pr.id !== projectId; }); });
+        });
+    }
+  }, [archivedProjects, liveMode]);
+
   var addProject = useCallback(function(proj) {
     if (!liveMode || !_dbReady || !user) {
       setProjects(function(arr) { return [Object.assign({}, proj, { id: uid('p'), transactions: [] }), ...arr]; });
@@ -743,6 +787,14 @@ function App() {
               );
             })}
             {filteredProjects.length === 0 ? <div className="dim" style={{padding:'8px 12px',fontSize:'12px'}}>ไม่พบโครงการ</div> : null}
+            {archivedProjects.length > 0 ? (
+              <button className={'nav-item ' + (view.name === 'archive' ? 'active' : '')}
+                onClick={function(){goto({name:'archive'});}}>
+                <Icon name="archive" size={16}/>
+                <span>คลังโครงการ</span>
+                <span style={{marginLeft:'auto',background:'var(--bg-2)',color:'var(--text-3)',borderRadius:'10px',padding:'1px 6px',fontSize:'10px',fontWeight:600,flexShrink:0}}>{archivedProjects.length}</span>
+              </button>
+            ) : null}
             <div className="sidebar-section-label">ข้อมูลส่วนกลาง</div>
             <button className={'nav-item ' + (view.name === 'globalCategories' ? 'active' : '')}
               onClick={function(){goto({name:'globalCategories'});}}>
@@ -833,6 +885,9 @@ function App() {
               </>) : view.name === 'quickReceipts' ? (<>
                 <span className="sep">/</span>
                 <strong>บิลค้างลงบัญชี</strong>
+              </>) : view.name === 'archive' ? (<>
+                <span className="sep">/</span>
+                <strong>คลังโครงการ</strong>
               </>) : null}
             </div>
             <div className="spacer"></div>
@@ -902,6 +957,7 @@ function App() {
               onBack={function(){goto({name:'dashboard'});}}
               onUpdate={updateProject}
               onDelete={function(){ removeProject(currentProjectWithGlobal.id); goto({name:'dashboard'}); }}
+              onArchive={function(){ archiveProject(currentProjectWithGlobal.id); goto({name:'dashboard'}); }}
               onOpenBalance={function(){goto({name:'balance',projectId:currentProjectWithGlobal.id});}}
               currentRole={getEffectiveRole(currentProjectWithGlobal, cu.name, currentRole)}
               presets={globalPresets}
@@ -934,6 +990,13 @@ function App() {
             <QuickReceiptsScreen
               projects={projects}
               onDeleteReceipt={handleDeleteReceipt}
+            />
+          ) : view.name === 'archive' ? (
+            <ArchivedProjectsView
+              projects={archivedProjects}
+              onUnarchive={unarchiveProject}
+              onBack={function(){goto({name:'dashboard'});}}
+              currentRole={currentRole}
             />
           ) : (
             <Empty title="ไม่พบหน้าที่ต้องการ" icon="warn"

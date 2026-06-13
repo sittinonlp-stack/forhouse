@@ -30,6 +30,8 @@
       endDate:       row.end_date   || '',
       status:        row.status,
       progress:      Number(row.progress || 0),
+      archived:      !!row.archived,
+      archivedAt:    row.archived_at || null,
       budgets: (budgets || []).reduce(function (acc, b) {
         acc[b.kind] = Number(b.amount);
         return acc;
@@ -304,7 +306,9 @@
 
   function getProjects() {
     var projects, ids;
-    return client.from('projects').select('*').order('created_at', { ascending: false })
+    return client.from('projects').select('*')
+      .or('archived.is.null,archived.eq.false')
+      .order('created_at', { ascending: false })
       .then(function (res) {
         if (res.error) throw res.error;
         projects = res.data || [];
@@ -596,6 +600,55 @@
   }
 
   // ─────────────────────────────────────────────
+  // ARCHIVE PROJECT
+  // ─────────────────────────────────────────────
+
+  function archiveProject(projectId, archive) {
+    var row = {
+      archived:    !!archive,
+      archived_at: archive ? new Date().toISOString() : null,
+      updated_at:  new Date().toISOString()
+    };
+    return client.from('projects').update(row).eq('id', projectId)
+      .then(function (res) { if (res.error) throw res.error; });
+  }
+
+  function getArchivedProjects() {
+    var projects, ids;
+    return client.from('projects').select('*')
+      .eq('archived', true)
+      .order('archived_at', { ascending: false })
+      .then(function (res) {
+        if (res.error) throw res.error;
+        projects = res.data || [];
+        if (!projects.length) return [null, null, null, null];
+        ids = projects.map(function (p) { return p.id; });
+        return Promise.all([
+          client.from('project_budgets').select('*').in('project_id', ids),
+          client.from('categories').select('*').in('project_id', ids).order('sort_order'),
+          client.from('income_records').select('*').in('project_id', ids).order('date', { ascending: false }),
+          client.from('purchase_orders').select('*').in('project_id', ids).order('date', { ascending: false })
+        ]);
+      })
+      .then(function (results) {
+        if (!results) return [];
+        var budgetsAll = (results[0] && results[0].data) || [];
+        var catsAll    = (results[1] && results[1].data) || [];
+        var incomesAll = (results[2] && results[2].data) || [];
+        var posAll     = (results[3] && results[3].data) || [];
+        return projects.map(function (p) {
+          return mapProjectRow(
+            p,
+            budgetsAll.filter(function (b) { return b.project_id === p.id; }),
+            catsAll.filter(function (c) { return c.project_id === p.id; }),
+            incomesAll.filter(function (i) { return i.project_id === p.id; }),
+            posAll.filter(function (po) { return po.project_id === p.id; })
+          );
+        });
+      });
+  }
+
+  // ─────────────────────────────────────────────
   // DELETE PROJECT (cascades to all related rows)
   // ─────────────────────────────────────────────
 
@@ -808,6 +861,8 @@
     },
     projects: {
       getProjects:         getProjects,
+      getArchivedProjects: getArchivedProjects,
+      archiveProject:      archiveProject,
       getProjectFull:      getProjectFull,
       createProject:       createProject,
       deleteProject:       deleteProject,
