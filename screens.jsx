@@ -7,7 +7,7 @@ const SCR = {}; // will be exported to window at the end
 /* ============================================================
    DASHBOARD — overview of all projects
    ============================================================ */
-function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, onOpenMonthlyPlan, currentRole }) {
+function Dashboard({ projects, archivedProjects, onOpenProject, onNewProject, onOpenAllBalance, onOpenMonthlyPlan, onOpenArchive, currentRole }) {
   const canViewBalance = (ROLES[currentRole] || ROLES.staff).canViewBalance;
   const all = useMemo(() => {
     const totals = { income: 0, incomeNet: 0, incomeDeduction: 0, expense: 0, profit: 0, contract: 0, budget: 0 };
@@ -40,6 +40,25 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
     const totalPending = Object.values(pendingByKind).reduce((s, n) => s + n, 0);
     return { totals, margin, list, totalPending, pendingByKind };
   }, [projects]);
+
+  // Cumulative company-wide totals — รวมโครงการในคลัง (realized P&L)
+  // โครงการที่จบและเก็บเข้าคลังคือผลที่เกิดจริง ต้องนับรวมในยอดสะสมบริษัทเสมอ
+  const cumulative = useMemo(() => {
+    const arch = { income: 0, incomeNet: 0, expense: 0, profit: 0, count: 0 };
+    (archivedProjects || []).forEach(p => {
+      const agg = aggregateProject(p);
+      arch.income    += agg.income;
+      arch.incomeNet += agg.incomeNet;
+      arch.expense   += agg.expense;
+      arch.profit    += agg.profit;
+      arch.count++;
+    });
+    const incomeNet = all.totals.incomeNet + arch.incomeNet;
+    const expense   = all.totals.expense   + arch.expense;
+    const profit    = all.totals.profit    + arch.profit;
+    const margin    = incomeNet > 0 ? (profit / incomeNet) * 100 : 0;
+    return { arch, incomeNet, expense, profit, margin };
+  }, [archivedProjects, all.totals]);
 
   // Combined monthly trend across all projects
   const trend = useMemo(() => {
@@ -111,14 +130,69 @@ function Dashboard({ projects, onOpenProject, onNewProject, onOpenAllBalance, on
         <Stat tone="expense" icon="expense" label="รายจ่ายรวมทุกโครงการ"
           value={formatBaht(all.totals.expense)}
           delta={`คิดเป็น ${all.totals.incomeNet > 0 ? Math.round(all.totals.expense / all.totals.incomeNet * 100) : 0}% ของรายรับสุทธิ`} deltaTone="flat"/>
-        <Stat tone="profit" icon="wallet" label="กำไร/ขาดทุนสุทธิรวม"
+        <Stat tone="profit" icon="wallet" label="กำไร/ขาดทุนสุทธิ (กำลังดำเนินงาน)"
           value={formatBaht(all.totals.profit)}
-          delta={all.totals.profit >= 0 ? 'กำไรสะสม' : 'ขาดทุนสะสม'} deltaTone={all.totals.profit >= 0 ? 'up' : 'down'}/>
+          delta={all.totals.profit >= 0 ? 'เฉพาะโครงการที่ยังไม่เก็บเข้าคลัง' : 'ขาดทุน · เฉพาะโครงการที่ดำเนินงาน'} deltaTone={all.totals.profit >= 0 ? 'up' : 'down'}/>
         <Stat tone="margin" icon="pie" label="อัตรากำไรขั้นต้นรวม" unit="%"
           value={all.margin.toFixed(1)}
           delta={all.margin >= 15 ? 'อยู่ในเกณฑ์ดี' : all.margin >= 5 ? 'พอใช้' : all.margin >= 0 ? 'ควรเฝ้าระวัง' : 'ติดลบ'}
           deltaTone={all.margin >= 15 ? 'up' : all.margin >= 0 ? 'flat' : 'down'}/>
       </div>
+
+      {cumulative.arch.count > 0 ? (
+        <div className="card mb-24" style={{
+          padding:'16px 20px',
+          background:'linear-gradient(180deg, rgba(34,197,94,.04), transparent)',
+          borderColor:'rgba(34,197,94,.25)'
+        }}>
+          <div className="between mb-16" style={{flexWrap:'wrap', gap:'8px'}}>
+            <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
+              <Icon name="archive" size={18} style={{color:'var(--brand-bright)'}}/>
+              <div>
+                <div style={{fontSize:'15px', fontWeight:600}}>ภาพรวมสะสมทั้งบริษัท</div>
+                <div className="dim" style={{fontSize:'12px', marginTop:'2px'}}>
+                  รวมโครงการที่ดำเนินงาน {all.list.length} + โครงการในคลัง {cumulative.arch.count} = ผลประกอบการจริงทั้งหมด
+                </div>
+              </div>
+            </div>
+            {onOpenArchive ? (
+              <button className="btn ghost" style={{fontSize:'12px'}} onClick={onOpenArchive}>
+                <Icon name="archive" size={14}/> ดูคลังโครงการ
+              </button>
+            ) : null}
+          </div>
+          <div style={{display:'flex', gap:'32px', flexWrap:'wrap'}}>
+            <div>
+              <div className="uppercase muted" style={{fontSize:'10.5px', marginBottom:'4px'}}>รายรับสุทธิสะสม</div>
+              <div className="mono" style={{fontSize:'19px', fontWeight:600, color:'var(--brand-bright)'}}>{formatBaht(cumulative.incomeNet)}</div>
+            </div>
+            <div>
+              <div className="uppercase muted" style={{fontSize:'10.5px', marginBottom:'4px'}}>รายจ่ายสะสม</div>
+              <div className="mono" style={{fontSize:'19px', fontWeight:600, color:'var(--danger)'}}>{formatBaht(cumulative.expense)}</div>
+            </div>
+            <div>
+              <div className="uppercase muted" style={{fontSize:'10.5px', marginBottom:'4px'}}>กำไร/ขาดทุนสุทธิสะสม</div>
+              <div className="mono" style={{fontSize:'19px', fontWeight:700, color: cumulative.profit >= 0 ? 'var(--brand-bright)' : 'var(--danger)'}}>
+                {cumulative.profit < 0 ? '−' : ''}{formatBaht(Math.abs(cumulative.profit))}
+              </div>
+              <div className="dim" style={{fontSize:'11px', marginTop:'2px'}}>
+                {cumulative.profit >= 0 ? 'กำไรสะสมรวม' : 'ขาดทุนสะสมรวม'} · Margin {cumulative.margin.toFixed(1)}%
+              </div>
+            </div>
+            {cumulative.arch.profit !== 0 ? (
+              <div>
+                <div className="uppercase muted" style={{fontSize:'10.5px', marginBottom:'4px'}}>เฉพาะโครงการในคลัง</div>
+                <div className="mono" style={{fontSize:'19px', fontWeight:600, color: cumulative.arch.profit >= 0 ? 'var(--brand-bright)' : 'var(--danger)'}}>
+                  {cumulative.arch.profit < 0 ? '−' : ''}{formatBaht(Math.abs(cumulative.arch.profit))}
+                </div>
+                <div className="dim" style={{fontSize:'11px', marginTop:'2px'}}>
+                  {cumulative.arch.profit >= 0 ? 'กำไรจากงานที่จบแล้ว' : 'ขาดทุนจากงานที่จบแล้ว'}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {trend.length > 1 ? (
         <div className="card mb-24">
@@ -4336,11 +4410,11 @@ function ArchivedProjectsView({ projects, onUnarchive, onBack, currentRole }) {
       ) : (
         <div className="col gap-12" style={{padding:'0 4px'}}>
           {projects.map(function(p) {
-            const income = (p.transactions || []).filter(t => t.kind === 'income');
-            const expenses = (p.transactions || []).filter(t => t.kind !== 'income' && getStatus(t) !== 'rejected');
-            const totalIncome = income.reduce((s,t) => s + t.amount, 0);
-            const totalExpense = expenses.reduce((s,t) => s + t.amount, 0);
-            const profit = totalIncome - totalExpense;
+            // ใช้ aggregateProject ตัวเดียวกับแดชบอร์ด เพื่อให้ตัวเลขสอดคล้องกับยอดสะสมบริษัท
+            const agg = aggregateProject(p);
+            const totalIncome = agg.incomeNet;
+            const totalExpense = agg.expense;
+            const profit = agg.profit;
             return (
               <div key={p.id} className="card" style={{padding:'16px 20px'}}>
                 <div style={{display:'flex', alignItems:'flex-start', gap:'14px'}}>

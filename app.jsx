@@ -933,10 +933,12 @@ function App() {
           {view.name === 'dashboard' ? (
             <Dashboard
               projects={projects}
+              archivedProjects={archivedProjects}
               onOpenProject={function(id){goto({name:'project',projectId:id});}}
               onNewProject={function(){setNewProjOpen(true);}}
               onOpenAllBalance={function(){goto({name:'allBalance'});}}
               onOpenMonthlyPlan={function(){goto({name:'monthlyPlan'});}}
+              onOpenArchive={function(){goto({name:'archive'});}}
               currentRole={currentRole}
             />
           ) : view.name === 'monthlyPlan' ? (
