@@ -307,16 +307,28 @@
   // Fetch ALL rows for a query, paginating past Supabase's 1000-row cap.
   // queryFactory(from, to) must return a PostgREST builder with .range(from,to) applied.
   // Order by a stable unique column (id) so page boundaries never drop/duplicate rows.
+  //
+  // IMPORTANT: never throws. PostgREST returns HTTP 416 ("Requested range not
+  // satisfiable") when .range() starts past the result set — which happens for an
+  // EMPTY result (0 rows) or at an exact page boundary. Treating that as fatal would
+  // reject the whole load and wipe every project. So any error → stop & return what
+  // we have (empty result correctly yields []).
   function fetchAllRows(queryFactory) {
     var PAGE = 1000;
     var acc = [];
     function loop(from) {
       return queryFactory(from, from + PAGE - 1).then(function (res) {
-        if (res.error) throw res.error;
+        if (res.error) {
+          console.warn('[db] fetchAllRows stop @' + from + ':', res.error.message || res.error);
+          return acc;
+        }
         var rows = res.data || [];
         acc = acc.concat(rows);
         if (rows.length < PAGE) return acc;
         return loop(from + PAGE);
+      }).catch(function (e) {
+        console.warn('[db] fetchAllRows error @' + from + ':', e && e.message || e);
+        return acc;
       });
     }
     return loop(0);

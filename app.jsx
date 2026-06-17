@@ -264,7 +264,11 @@ function App() {
         if (!_initialLoadDone.current) setProjectsLoading(true);
         return Promise.all([
           window.db.projects.getProjects(),
-          window.db.projects.getArchivedProjects()
+          // archived เป็นส่วนเสริม — ถ้าพังต้องไม่ฉุดโครงการหลักหาย
+          window.db.projects.getArchivedProjects().catch(function(e) {
+            console.warn('[load] getArchivedProjects failed:', e && e.message || e);
+            return [];
+          })
         ]);
       })
       .then(function(results) {
