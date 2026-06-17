@@ -304,6 +304,24 @@
   // PROJECTS — list + all transactions (for dashboard summaries)
   // ─────────────────────────────────────────────
 
+  // Fetch ALL rows for a query, paginating past Supabase's 1000-row cap.
+  // queryFactory(from, to) must return a PostgREST builder with .range(from,to) applied.
+  // Order by a stable unique column (id) so page boundaries never drop/duplicate rows.
+  function fetchAllRows(queryFactory) {
+    var PAGE = 1000;
+    var acc = [];
+    function loop(from) {
+      return queryFactory(from, from + PAGE - 1).then(function (res) {
+        if (res.error) throw res.error;
+        var rows = res.data || [];
+        acc = acc.concat(rows);
+        if (rows.length < PAGE) return acc;
+        return loop(from + PAGE);
+      });
+    }
+    return loop(0);
+  }
+
   function getProjects() {
     var projects, ids;
     return client.from('projects').select('*')
@@ -312,23 +330,23 @@
       .then(function (res) {
         if (res.error) throw res.error;
         projects = res.data || [];
-        if (!projects.length) return [null, null, null, null];
+        if (!projects.length) return [[], [], [], []];
         ids = projects.map(function (p) { return p.id; });
         return Promise.all([
-          client.from('project_budgets').select('*').in('project_id', ids),
-          client.from('categories').select('*').in('project_id', ids).order('sort_order'),
+          fetchAllRows(function (f, t) { return client.from('project_budgets').select('*').in('project_id', ids).order('id', { ascending: true }).range(f, t); }),
+          fetchAllRows(function (f, t) { return client.from('categories').select('*').in('project_id', ids).order('sort_order').order('id', { ascending: true }).range(f, t); }),
           // Fetch all income records for all projects (no items needed for summary)
-          client.from('income_records').select('*').in('project_id', ids).order('date', { ascending: false }),
+          fetchAllRows(function (f, t) { return client.from('income_records').select('*').in('project_id', ids).order('id', { ascending: true }).range(f, t); }),
           // Fetch all POs (no po_items — amounts already stored on PO row)
-          client.from('purchase_orders').select('*').in('project_id', ids).order('date', { ascending: false })
+          fetchAllRows(function (f, t) { return client.from('purchase_orders').select('*').in('project_id', ids).order('id', { ascending: true }).range(f, t); })
         ]);
       })
       .then(function (results) {
         if (!results) return [];
-        var budgetsAll = (results[0] && results[0].data) || [];
-        var catsAll    = (results[1] && results[1].data) || [];
-        var incomesAll = (results[2] && results[2].data) || [];
-        var posAll     = (results[3] && results[3].data) || [];
+        var budgetsAll = results[0] || [];
+        var catsAll    = results[1] || [];
+        var incomesAll = results[2] || [];
+        var posAll     = results[3] || [];
 
         // Compute pending counts from full PO list
         var pendingMap = {};
@@ -377,23 +395,20 @@
 
     return Promise.all([
       client.from('projects').select('*').eq('id', projectId).single(),
-      client.from('project_budgets').select('*').eq('project_id', projectId),
-      client.from('categories').select('*').eq('project_id', projectId).order('sort_order'),
-      client.from('income_records').select('*').eq('project_id', projectId).order('date', { ascending: false }),
-      client.from('purchase_orders')
-        .select('*, po_items(*)')
-        .eq('project_id', projectId)
-        .order('date', { ascending: false }),
+      fetchAllRows(function (f, t) { return client.from('project_budgets').select('*').eq('project_id', projectId).order('id', { ascending: true }).range(f, t); }),
+      fetchAllRows(function (f, t) { return client.from('categories').select('*').eq('project_id', projectId).order('sort_order').order('id', { ascending: true }).range(f, t); }),
+      fetchAllRows(function (f, t) { return client.from('income_records').select('*').eq('project_id', projectId).order('id', { ascending: true }).range(f, t); }),
+      fetchAllRows(function (f, t) { return client.from('purchase_orders').select('*, po_items(*)').eq('project_id', projectId).order('id', { ascending: true }).range(f, t); }),
       membersPromise
     ]).then(function (results) {
       var pRes  = results[0];
       if (pRes.error) throw pRes.error;
       return mapProjectRow(
         pRes.data,
-        (results[1].data) || [],
-        (results[2].data) || [],
-        (results[3].data) || [],
-        (results[4].data) || [],
+        results[1] || [],
+        results[2] || [],
+        results[3] || [],
+        results[4] || [],
         (results[5].data) || []
       );
     });
@@ -621,21 +636,21 @@
       .then(function (res) {
         if (res.error) throw res.error;
         projects = res.data || [];
-        if (!projects.length) return [null, null, null, null];
+        if (!projects.length) return [[], [], [], []];
         ids = projects.map(function (p) { return p.id; });
         return Promise.all([
-          client.from('project_budgets').select('*').in('project_id', ids),
-          client.from('categories').select('*').in('project_id', ids).order('sort_order'),
-          client.from('income_records').select('*').in('project_id', ids).order('date', { ascending: false }),
-          client.from('purchase_orders').select('*').in('project_id', ids).order('date', { ascending: false })
+          fetchAllRows(function (f, t) { return client.from('project_budgets').select('*').in('project_id', ids).order('id', { ascending: true }).range(f, t); }),
+          fetchAllRows(function (f, t) { return client.from('categories').select('*').in('project_id', ids).order('sort_order').order('id', { ascending: true }).range(f, t); }),
+          fetchAllRows(function (f, t) { return client.from('income_records').select('*').in('project_id', ids).order('id', { ascending: true }).range(f, t); }),
+          fetchAllRows(function (f, t) { return client.from('purchase_orders').select('*').in('project_id', ids).order('id', { ascending: true }).range(f, t); })
         ]);
       })
       .then(function (results) {
         if (!results) return [];
-        var budgetsAll = (results[0] && results[0].data) || [];
-        var catsAll    = (results[1] && results[1].data) || [];
-        var incomesAll = (results[2] && results[2].data) || [];
-        var posAll     = (results[3] && results[3].data) || [];
+        var budgetsAll = results[0] || [];
+        var catsAll    = results[1] || [];
+        var incomesAll = results[2] || [];
+        var posAll     = results[3] || [];
         return projects.map(function (p) {
           return mapProjectRow(
             p,
@@ -756,13 +771,11 @@
   // ─────────────────────────────────────────────
   function getProjectTransactions(projectId) {
     return Promise.all([
-      client.from('income_records').select('*').eq('project_id', projectId).order('date', { ascending: false }),
-      client.from('purchase_orders').select('*, po_items(*)').eq('project_id', projectId).order('date', { ascending: false })
+      fetchAllRows(function (f, t) { return client.from('income_records').select('*').eq('project_id', projectId).order('id', { ascending: true }).range(f, t); }),
+      fetchAllRows(function (f, t) { return client.from('purchase_orders').select('*, po_items(*)').eq('project_id', projectId).order('id', { ascending: true }).range(f, t); })
     ]).then(function (results) {
-      if (results[0].error) throw results[0].error;
-      if (results[1].error) throw results[1].error;
-      var incomes = (results[0].data || []).map(mapIncomeRow);
-      var pos     = (results[1].data || []).map(mapPORow);
+      var incomes = (results[0] || []).map(mapIncomeRow);
+      var pos     = (results[1] || []).map(mapPORow);
       return incomes.concat(pos);
     });
   }
